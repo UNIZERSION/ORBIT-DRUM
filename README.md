@@ -9,7 +9,7 @@ touch screen of the M5Stack Tab5. It has 16 multi-touch pads, a step sequencer, 
 effects, scenes and a song arrangement, and an acid bass line with a live keyboard. The engine renders at 48 kHz
 with about 7 ms of output latency.
 
-Current version: **0.4.7**. Polish manual and version history: [docs/INSTRUKCJA_PL.md](docs/INSTRUKCJA_PL.md).
+Current version: **0.4.8**. Polish manual and version history: [docs/INSTRUKCJA_PL.md](docs/INSTRUKCJA_PL.md).
 
 ## Features
 

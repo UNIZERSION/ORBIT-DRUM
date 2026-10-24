@@ -18,6 +18,7 @@
 #include "ui/theme.h"
 #include "ui/ui_internal.h"
 #include "ui/widgets.h"
+#include "ui/logo_orbit_daw.h"
 
 namespace orbit::ui::topbar {
 
@@ -39,7 +40,7 @@ lv_obj_t* s_play_lbl = nullptr;
 lv_obj_t* s_rec = nullptr;
 lv_obj_t* s_dirty = nullptr;
 lv_obj_t* s_learn = nullptr;
-lv_obj_t* s_sub = nullptr;      // "SAMPLER / SEQUENCER" (the MIDI LEARN chip takes its place)
+lv_obj_t* s_sub = nullptr;      // the ORBIT DAW wordmark (0.4.8; the MIDI LEARN chip takes its place)
 lv_obj_t* s_bt = nullptr;
 uint32_t s_rev_view = 0, s_rev_transport = 0, s_rev_project = 0, s_rev_midi = 0, s_rev_bt = 0;
 int s_drawn_view = -1;
@@ -118,15 +119,15 @@ lv_obj_t* create(lv_obj_t* scr)
     }
     s_bar = bar;
 
-    // .lt-logo: "TAB5" 30 px / 650 / -.065em -> f_b34; "SAMPLER / SEQUENCER" 10 px / .12em #8d9397.
-    lv_obj_t* logo = label(bar, "TAB5", f_b34, col::ink);
-    lv_obj_set_style_text_letter_space(logo, -2, 0);
-    lv_obj_set_pos(logo, 20, 9);
-    lv_obj_update_layout(logo);
-    lv_obj_t* sub = label(bar, "SAMPLER / SEQUENCER", f_r12, col::top_sub);
-    s_sub = sub;
-    lv_obj_set_style_text_letter_space(sub, 1, 0);
-    lv_obj_set_pos(sub, 20 + lv_obj_get_width(logo) + 19, 23);
+    // 0.4.8: the ORBIT DAW wordmark (tools/logogen, A8 recoloured with the ink) in place of "TAB5" and its
+    // "SAMPLER / SEQUENCER" subtitle; 20 .. ~255, left of the BT chip (296) and the tabs (377).
+    lv_obj_t* logo = lv_image_create(bar);
+    lv_image_set_src(logo, &kLogoOrbitDaw);
+    lv_obj_set_style_image_recolor(logo, c(col::ink), 0);
+    lv_obj_set_style_image_recolor_opa(logo, LV_OPA_COVER, 0);
+    lv_obj_remove_flag(logo, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_pos(logo, 20, (geo::top_h - kLogoOrbitDaw.header.h) / 2);
+    s_sub = logo;   // hidden while the MIDI LEARN chip is shown
 
     // .lt-nav: 90x35 buttons, gap 9, #e1e3e4 / #717578, 11 px / .07em; active: accent, #252525,
     // box-shadow 0 2px 6px #ff663933.
@@ -174,10 +175,10 @@ lv_obj_t* create(lv_obj_t* scr)
     lv_obj_remove_flag(s_dirty, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(s_dirty, LV_OBJ_FLAG_EVENT_BUBBLE);
     lv_obj_add_flag(s_dirty, LV_OBJ_FLAG_HIDDEN);
-    // MIDI learn chip (hidden unless learning): in place of the logo's subtitle (the six tabs and the maximize
-    // button reach x 957 since 0.3: the old place covered FX)
+    // MIDI learn chip (hidden unless learning): over the wordmark, which hides meanwhile (the six tabs and the
+    // maximize button reach x 957 since 0.3: the old place covered FX)
     s_learn = actionBtn(bar, "MIDI LEARN \xE2\x9C\x95", true, 98, 30);
-    lv_obj_set_pos(s_learn, 20 + lv_obj_get_width(logo) + 12, 16);
+    lv_obj_set_pos(s_learn, 118, 16);
     lv_obj_set_style_text_font(s_learn, f_m12, 0);
     lv_obj_set_style_text_letter_space(s_learn, 0, 0);
     lv_obj_set_style_pad_hor(s_learn, 4, 0);

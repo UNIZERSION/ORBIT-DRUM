@@ -718,7 +718,19 @@ static void shotsBluetooth()
     runAudio(400);
     CHECK(a.btStatus().connected && a.btDeviceCount() == 3, "connected, %d devices", a.btDeviceCount());
     chip = findLabel("BT", false, top);
-    lv_obj_t* sub = findLabel("SAMPLER / SEQUENCER", false, top);
+    lv_obj_t* sub = nullptr;   // 0.4.8: the ORBIT DAW wordmark (the bar's image child) in place of the subtitle
+    if (chip) {
+        lv_obj_t* bar = lv_obj_get_parent(lv_obj_get_parent(chip));
+        for (uint32_t i = 0; bar && i < lv_obj_get_child_count(bar) && !sub; ++i)
+            if (lv_obj_check_type(lv_obj_get_child(bar, i), &lv_image_class)) sub = lv_obj_get_child(bar, i);
+    }
+    CHECK(sub != nullptr, "ORBIT DAW wordmark in the top bar");
+    if (sub) {
+        lv_area_t w;
+        lv_obj_get_coords(sub, &w);
+        CHECK(w.x1 == 20 && w.x2 < 296 - 8 && lv_area_get_height(&w) == 20, "wordmark at %d..%d x %d..%d", (int)w.x1,
+              (int)w.x2, (int)w.y1, (int)w.y2);
+    }
     if (chip && sub) {
         lv_obj_t* btn = lv_obj_get_parent(chip);
         lv_area_t c, s;

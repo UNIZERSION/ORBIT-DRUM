@@ -31,8 +31,11 @@
 #include "ui/ui.h"
 #include "ui/widgets.h"
 
+#ifdef ESP_PLATFORM
+#include "esp_app_desc.h"
+#endif
 #ifndef ORBIT_VERSION
-#define ORBIT_VERSION "0.1"
+#define ORBIT_VERSION "host"   // the PC build; the firmware reads its own version (PROJECT_VER) below
 #endif
 #ifdef ORBIT_BUILD_DATE
 static const char kBuildDate[] = ORBIT_BUILD_DATE;
@@ -1234,7 +1237,12 @@ lv_obj_t* copyLine(lv_obj_t* bx, const char* text, uint32_t color)
 void buildAbout()
 {
     char sub[96];
-    snprintf(sub, sizeof sub, "ORBIT DRUM %s \xE2\x80\xA2 build %s \xE2\x80\xA2 1280 \xC3\x97 720", ORBIT_VERSION, kBuildDate);
+#ifdef ESP_PLATFORM
+    const char* ver = esp_app_get_description()->version;   // 0.4.8: PROJECT_VER (it said a fixed "0.1" before)
+#else
+    const char* ver = ORBIT_VERSION;
+#endif
+    snprintf(sub, sizeof sub, "ORBIT DRUM %s \xE2\x80\xA2 build %s \xE2\x80\xA2 1280 \xC3\x97 720", ver, kBuildDate);
     lv_obj_t* p = paneCreate(7, "About ORBIT DRUM", sub);
     lv_obj_set_style_pad_row(p, 0, 0);
     lv_obj_t* bx = copyBox(p);
