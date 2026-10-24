@@ -258,7 +258,7 @@ void onRandom(lv_event_t*)
     armUndo();
     syncUndo(false);
     char msg[96];
-    snprintf(msg, sizeof msg, "Wylosowano scenę %c — dotknij UNDO, aby cofnąć", sceneLetter());
+    snprintf(msg, sizeof msg, "Random scene %c — tap UNDO to take it back", sceneLetter());
     toast(msg);
 }
 
@@ -267,18 +267,18 @@ void onClear(lv_event_t*)
     if (v.undo_until) {   // the button currently reads UNDO: never clears
         clearToClear();
         if (undoAvailable(app(), 0)) undoRun(app(), 0);   // the App names the restored scene
-        else toast("Brak zmiany wzoru do cofnięcia");
+        else toast("No pattern change to undo");
         syncUndo(false);
         return;
     }
     char msg[96];
     app().clearScene();
     if (undoAvailable(app(), 0)) {
-        snprintf(msg, sizeof msg, "Wyczyszczono scenę %c — dotknij UNDO, aby cofnąć", sceneLetter());
+        snprintf(msg, sizeof msg, "Cleared scene %c — tap UNDO to take it back", sceneLetter());
         armUndo();
         syncUndo(false);
     } else {
-        snprintf(msg, sizeof msg, "Wyczyszczono scenę %c", sceneLetter());
+        snprintf(msg, sizeof msg, "Cleared scene %c", sceneLetter());
     }
     toast(msg);
 }
@@ -313,8 +313,8 @@ void lengthPicked(int index, void* user)
     app().setTrackLength(pad, kLenVals[index]);
     char name[32], msg[96];
     padName(pad, name, sizeof name);
-    if (kLenVals[index] == 0) snprintf(msg, sizeof msg, "%s: długość jak scena", name);
-    else snprintf(msg, sizeof msg, "%s: %d kroków", name, kLenVals[index]);
+    if (kLenVals[index] == 0) snprintf(msg, sizeof msg, "%s: length as the scene", name);
+    else snprintf(msg, sizeof msg, "%s: %d steps", name, kLenVals[index]);
     toast(msg);
 }
 
@@ -329,9 +329,9 @@ void trackMenuPicked(int index, void* user)
         if (undoAvailable(app(), 0)) {
             armUndo();
             syncUndo(false);
-            snprintf(msg, sizeof msg, "Wyczyszczono tor %s — dotknij UNDO, aby cofnąć", name);
+            snprintf(msg, sizeof msg, "Cleared track %s — tap UNDO to take it back", name);
         } else {
-            snprintf(msg, sizeof msg, "Wyczyszczono tor %s", name);
+            snprintf(msg, sizeof msg, "Cleared track %s", name);
         }
         toast(msg);
         break;
@@ -345,7 +345,7 @@ void trackMenuPicked(int index, void* user)
     }
     case 2:
         app().toggleMute(pad);
-        snprintf(msg, sizeof msg, "%s: %s", name, app().project().pad[pad].mute ? "wyciszony" : "włączony");
+        snprintf(msg, sizeof msg, "%s: %s", name, app().project().pad[pad].mute ? "muted" : "on");
         toast(msg);
         break;
     default: break;

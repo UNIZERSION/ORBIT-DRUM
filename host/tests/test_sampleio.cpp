@@ -514,7 +514,7 @@ static void testWavFormats()
         adpcm[0] = 2;
         const Bytes adp = riff({chunk("fmt ", adpcm), chunk("data", Bytes(100, 0))});
         CHECK(!wavLoadMem(adp.data(), (uint32_t)adp.size(), "x", &info, &err) && err == WavError::Unsupported);
-        CHECK(!std::strcmp(wavErrorText(WavError::Unsupported), "Nieobsługiwany format"));
+        CHECK(!std::strcmp(wavErrorText(WavError::Unsupported), "Unsupported format"));
         for (int e = 0; e <= (int)WavError::Io; ++e) CHECK(wavErrorText((WavError)e)[0] != 0);
         CHECK(!wavLoadMem(nullptr, 0, "x", &info, &err));
     }

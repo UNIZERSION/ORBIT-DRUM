@@ -734,10 +734,10 @@ static void overlayTests()
     // a different key restarts it
     toast("TAP TEMPO: 122 BPM");
     lvhost_run(1000);
-    toast("REC wyłączony");
+    toast("REC off");
     lvhost_run(1000);   // 2.0 s after the first, 1.0 s after the second
     CHECK(toastVisible());
-    CHECK(strcmp(toastText(), "REC wyłączony") == 0);
+    CHECK(strcmp(toastText(), "REC off") == 0);
     lvhost_run(1000);
     CHECK(!toastVisible());
 

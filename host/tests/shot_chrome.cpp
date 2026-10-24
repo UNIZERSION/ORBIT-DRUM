@@ -86,7 +86,15 @@ WEAK void onShow() { ++g_on_show[5]; }
 WEAK void onHide() {}
 WEAK void touchInput(const hal::TouchPoint*, int) {}
 WEAK bool keysOn() { return false; }
+WEAK int liveBase() { return 36; }
+WEAK bool liveAccent() { return false; }
+WEAK bool liveSlide() { return true; }
+WEAK void setLiveBase(int) {}
 }  // namespace view_bass
+namespace keys {
+WEAK void poll() {}
+WEAK void handle(const hal::KeyEvent&) {}
+}  // namespace keys
 namespace dlg_settings {
 WEAK void open() { ++g_dlg_settings; }
 WEAK void refresh() {}
@@ -313,20 +321,20 @@ static void testTopbar()
     a.stop();   // a second stop rewinds
     runAudio(30);
 
-    // ux-12: while MIDI learn is on, an accent chip "MIDI LEARN ✕" sits between the navigation (ends at
-    // 863) and the folder (978); a tap on it ends learn.
+    // ux-12: while MIDI learn is on, an accent chip "MIDI LEARN ✕" takes the place of the logo's subtitle (0.4.6:
+    // the six tabs and the maximize button reach x 957, the old place covered FX); a tap on it ends learn.
     CHECK(!a.midiLearning());
-    CHECK(!isAccentish(pixel(874, 31)));
+    CHECK(!isAccentish(pixel(150, 20)));
     a.midiLearn(true);
     runAudio(60);
     CHECK(a.midiLearning());
-    CHECK(isAccentish(pixel(874, 31)) && isAccentish(pixel(966, 31)));
-    CHECK(!isAccentish(pixel(866, 31)) && !isAccentish(pixel(975, 31)));   // clear of the FX tab and the folder
+    CHECK(isAccentish(pixel(150, 20)) && isAccentish(pixel(190, 20)));   // (above the text)
+    CHECK(!isAccentish(pixel(874, 31)) && !isAccentish(pixel(966, 31)));   // FX tab and the maximize button free
     shot("midi_learn_chip");
-    lvhost_tap(871 + 49, 31);
+    lvhost_tap(170, 31);
     runAudio(60);
     CHECK(!a.midiLearning());
-    CHECK(!isAccentish(pixel(874, 31)));
+    CHECK(!isAccentish(pixel(150, 20)));
 }
 
 static void testPads()
@@ -704,7 +712,7 @@ static void testTimeline()
         CHECK(a.project().song.slot[8] == 2);
         // replacing another scene is toasted
         printf("  toast: %s\n", toastText());
-        CHECK(strncmp(toastText(), "Slot 9: Scena A", 15) == 0);
+        CHECK(strncmp(toastText(), "Slot 9: Scene A", 15) == 0);
         // released outside the matrix: cancelled
         CHECK(a.project().song.slot[9] == 0);
         lvhost_pointer(cellX(9), cellY(1), true);

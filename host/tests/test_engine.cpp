@@ -103,7 +103,9 @@ struct Rig {
 
     explicit Rig(int r = 48000, bool clear_scenes = false) : rate(r)
     {
-        projectDefaults(prj);
+        // cleared scenes: the defaults without the demo (0.4.6: its 111 BPM, 2-bar scenes and 303 sound too)
+        if (clear_scenes) projectEmpty(prj);
+        else projectDefaults(prj);
         prj.g[GP_MASTER] = 0.0f;  // level checks below assume a 0 dB master (default is -1 dB headroom)
         if (clear_scenes)
             for (auto& sc : prj.scene_data) {

@@ -332,7 +332,7 @@ bool writeJson(const char* path, const Project& p, const SampleRef refs[kPads][k
                char* err, int errlen)
 {
     if (!path || !path[0]) {
-        setErr(err, errlen, "Błędna ścieżka projektu");
+        setErr(err, errlen, "Invalid project path");
         return false;
     }
     JsonHeap heap;
@@ -340,26 +340,26 @@ bool writeJson(const char* path, const Project& p, const SampleRef refs[kPads][k
     cJSON* root = buildJson(p, refs, exported, ok);
     if (!root || !ok) {
         cJSON_Delete(root);
-        setErr(err, errlen, "Brak pamięci");
+        setErr(err, errlen, "Out of memory");
         return false;
     }
     char* text = cJSON_PrintBuffered(root, 64 * 1024, 1);
     cJSON_Delete(root);
     if (!text) {
-        setErr(err, errlen, "Brak pamięci");
+        setErr(err, errlen, "Out of memory");
         return false;
     }
     const size_t len = strlen(text);
     char tmp[kPathLen + 8];
     if (snprintf(tmp, sizeof(tmp), "%s.tmp", path) >= (int)sizeof(tmp)) {
         cJSON_free(text);
-        setErr(err, errlen, "Błędna ścieżka projektu");
+        setErr(err, errlen, "Invalid project path");
         return false;
     }
     FILE* f = fopen(tmp, "wb");
     if (!f) {
         cJSON_free(text);
-        setErr(err, errlen, "Nie można zapisać pliku");
+        setErr(err, errlen, "Cannot write the file");
         return false;
     }
     bool wr = fwrite(text, 1, len, f) == len && fputc('\n', f) != EOF;
@@ -368,11 +368,11 @@ bool writeJson(const char* path, const Project& p, const SampleRef refs[kPads][k
     if (fclose(f) != 0) wr = false;
     if (!wr) {
         remove(tmp);
-        setErr(err, errlen, "Błąd zapisu na karcie");
+        setErr(err, errlen, "SD card write error");
         return false;
     }
     if (!replaceFile(tmp, path)) {
-        setErr(err, errlen, "Nie można zastąpić pliku projektu");
+        setErr(err, errlen, "Cannot replace the project file");
         return false;
     }
     if (err && errlen > 0) err[0] = 0;
@@ -590,12 +590,12 @@ bool applyJson(const cJSON* root, Project& p, SampleRef refs[kPads][kLayers], ch
 {
     const cJSON* fmt = item(root, "format");
     if (!cJSON_IsObject(root) || !cJSON_IsString(fmt) || strcmp(fmt->valuestring, kFormat) != 0) {
-        setErr(err, errlen, "To nie jest projekt ORBIT");
+        setErr(err, errlen, "Not an ORBIT project");
         return false;
     }
     double ver = 0.0;
     if (!getNum(root, "version", ver) || ver < 1.0) {
-        setErr(err, errlen, "Nieobsługiwana wersja projektu");
+        setErr(err, errlen, "Unsupported project version");
         return false;
     }
     projectDefaults(p);
@@ -672,7 +672,7 @@ bool applyJson(const cJSON* root, Project& p, SampleRef refs[kPads][kLayers], ch
         getB(song, "follow", p.song.follow);
     }
 
-    if (ver > (double)kFormatVersion) setErr(err, errlen, "Projekt z nowszej wersji: wczytano znane pola");
+    if (ver > (double)kFormatVersion) setErr(err, errlen, "Project from a newer version: known fields loaded");
     else if (err && errlen > 0) err[0] = 0;
     return true;
 }
@@ -681,32 +681,32 @@ char* readFile(const char* path, long& len, char* err, int errlen)
 {
     FILE* f = fopen(path, "rb");
     if (!f) {
-        setErr(err, errlen, "Nie można otworzyć projektu");
+        setErr(err, errlen, "Cannot open the project");
         return nullptr;
     }
     len = -1;
     if (fseek(f, 0, SEEK_END) == 0) len = ftell(f);
     if (len < 0 || fseek(f, 0, SEEK_SET) != 0) {
         fclose(f);
-        setErr(err, errlen, "Błąd odczytu karty");
+        setErr(err, errlen, "SD card read error");
         return nullptr;
     }
     if (len == 0 || len > kMaxFileBytes) {
         fclose(f);
-        setErr(err, errlen, len == 0 ? "Pusty plik projektu" : "Plik projektu jest za duży");
+        setErr(err, errlen, len == 0 ? "Empty project file" : "Project file too large");
         return nullptr;
     }
     char* buf = static_cast<char*>(bigAlloc((size_t)len + 1));
     if (!buf) {
         fclose(f);
-        setErr(err, errlen, "Brak pamięci");
+        setErr(err, errlen, "Out of memory");
         return nullptr;
     }
     const size_t got = fread(buf, 1, (size_t)len, f);
     fclose(f);
     if (got != (size_t)len) {
         bigFree(buf);
-        setErr(err, errlen, "Błąd odczytu karty");
+        setErr(err, errlen, "SD card read error");
         return nullptr;
     }
     buf[len] = 0;
@@ -730,7 +730,7 @@ bool projectLoad(const char* path, Project& p, SampleRef refs[kPads][kLayers], c
 {
     if (err && errlen > 0) err[0] = 0;
     if (!path || !path[0]) {
-        setErr(err, errlen, "Błędna ścieżka projektu");
+        setErr(err, errlen, "Invalid project path");
         return false;
     }
     long len = 0;
@@ -757,7 +757,7 @@ bool projectLoad(const char* path, Project& p, SampleRef refs[kPads][kLayers], c
     cJSON* root = cJSON_ParseWithLength(body, blen);
     bigFree(text);
     if (!root) {
-        setErr(err, errlen, "Uszkodzony plik projektu (JSON)");
+        setErr(err, errlen, "Damaged project file (JSON)");
         return false;
     }
     if (refs)
@@ -767,7 +767,7 @@ bool projectLoad(const char* path, Project& p, SampleRef refs[kPads][kLayers], c
     Project* tmp = static_cast<Project*>(bigAlloc(sizeof(Project)));
     if (!tmp) {
         cJSON_Delete(root);
-        setErr(err, errlen, "Brak pamięci");
+        setErr(err, errlen, "Out of memory");
         return false;
     }
     const bool ok = applyJson(root, *tmp, refs, err, errlen);

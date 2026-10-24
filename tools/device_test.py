@@ -49,8 +49,8 @@ def white_key(i):   # KEYS keyboard: 15 white keys over 329..1039 x 176..424, lo
     return (329 + i * 710 // 15 + 710 // 30, 176 + 210)
 
 
-def knob(i):        # BASS knobs: TUNE CUTOFF RESO ENV MOD DECAY ACCENT DRIVE FX SEND LEVEL
-    return (329 + i * 79 + 39, KNOB_Y)
+def knob(i):        # BASS knobs (0.4.6, no TUNE): CUTOFF RESO ENV MOD DECAY ACCENT DRIVE FX SEND LEVEL
+    return (332 + i * 88 + 44, KNOB_Y)
 
 
 def work_full(x, y):   # design point -> screen point with the BASS view on the whole screen (ui.cpp maxScale)
@@ -283,6 +283,41 @@ def t_transport(d, rep, out):
     rep.check("stop", d.state().get("playing") == 0)
 
 
+def t_demo(d, rep, out):
+    """0.4.7: every start opens the one demo (111 BPM, scene B = 909 groove + the 303 line). Run it first."""
+    print("demo")
+    s = d.state()
+    rep.check("demo tempo 111 BPM", abs(s.get("bpm", 0) - 111.0) < 0.05, "bpm=%s" % s.get("bpm"))
+    d.tap(*tab("sequence"))
+    time.sleep(0.6)
+    d.tap(320 + 1 * 29 + 12, 621)   # scene B
+    time.sleep(0.5)
+    n0 = d.audio().get("bass_notes", 0)
+    d.tap(*PLAY)
+    time.sleep(1.8)
+    peak = 0.0
+    for _ in range(8):   # the peak is read at one moment (it can fall between two hits): the loudest of 8
+        peak = max(peak, d.audio().get("peak_l", 0))
+        time.sleep(0.15)
+    a = d.audio()
+    s1 = d.state()
+    rep.check("demo plays", s1.get("playing") == 1 and peak > 0.1, "playing=%s peak %.3f" % (s1.get("playing"), peak))
+    rep.check("the 303 line plays in scene B", a.get("bass_notes", 0) - n0 >= 10, "bass notes %s -> %s" % (
+        n0, a.get("bass_notes")))
+    rep.check("no audio dropouts (demo)", s1.get("xruns", 0) == s.get("xruns", 0))
+    d.shot(os.path.join(out, "demo_scene_b.png"))
+    d.tap(*tab("bass"))
+    time.sleep(1.0)
+    d.shot(os.path.join(out, "demo_bass.png"))
+    d.tap(*PLAY)
+    time.sleep(0.4)
+    rep.check("demo stops", d.state().get("playing") == 0)
+    d.tap(*tab("sequence"))
+    time.sleep(0.6)
+    d.tap(320 + 0 * 29 + 12, 621)   # scene A again
+    time.sleep(0.5)
+
+
 def t_bass_keys(d, rep, out):
     print("BASS KEYS")
     d.tap(*tab("bass"))
@@ -312,7 +347,7 @@ def t_bass_keys(d, rep, out):
     rep.check("lifting returns to the held key", n3 == n2 + 1, "%d -> %d" % (n2, n3))
     # a knob turned while a key is held (the keyboard is the touch task's exclusive zone)
     c0 = d.state().get("cutoff", 0)
-    kx, ky = knob(1)
+    kx, ky = knob(0)
     d.touch(e2, (kx, ky))
     for i in range(1, 9):
         d.touch(e2, (kx, ky - i * 8))
@@ -365,8 +400,10 @@ def t_maximize(d, rep, out):
     rep.check("work area restored", d.state().get("max") == -1)
 
 
-SETTINGS_TABS = [("general", 125), ("audio", 168), ("midi", 211), ("bluetooth", 254), ("display", 297),
-                 ("touch", 340), ("storage", 383), ("about", 426)]   # (name, y of the tab at x 300)
+# 0.4.6: the settings window is drawn x1.25 (1030 x 704 at 125, 8; Interface size Standard)
+SETTINGS_TABS = [("general", 121), ("audio", 175), ("midi", 229), ("bluetooth", 283), ("display", 337),
+                 ("touch", 391), ("storage", 445), ("about", 499)]   # (name, y of the tab at x 230)
+SETTINGS_X = (1110, 43)
 
 
 def t_settings(d, rep, out):
@@ -376,12 +413,12 @@ def t_settings(d, rep, out):
     s = d.state()
     rep.check("settings open", s.get("modal") == 1, "modal=%s" % s.get("modal"))
     for name, y in SETTINGS_TABS:   # every tab (nothing is applied: no APPLY)
-        d.tap(300, y)
+        d.tap(230, y)
         time.sleep(0.5)
         d.shot(os.path.join(out, "settings_%s.png" % name))
-    d.tap(300, 125)
+    d.tap(230, 121)
     time.sleep(0.3)
-    d.tap(1016, 63)   # the dialog's X
+    d.tap(*SETTINGS_X)   # the dialog's X
     time.sleep(0.6)
     rep.check("settings closed", d.state().get("modal") == 0)
 
@@ -428,9 +465,89 @@ def t_soak(d, rep, out, seconds):
         s0.get("heap"), worst_heap))
 
 
-TESTS = [("views", t_views), ("pads", t_pads), ("transport", t_transport), ("scenes", t_scenes),
+BROWSER_MAX = (238, 431)       # corner marks of the BROWSER panel
+BROWSER_MAX_DRUMS = (640, 313)  # the Drums row of the maximized BROWSER panel
+
+
+def t_browser_max(d, rep, out):
+    print("maximized BROWSER: a category opens the large view")
+    d.tap(*tab("sequence"))
+    time.sleep(0.6)
+    d.tap(*BROWSER_MAX)
+    time.sleep(0.8)
+    rep.check("BROWSER panel maximized", d.state().get("max") == 1)
+    d.tap(*BROWSER_MAX_DRUMS)
+    time.sleep(1.0)
+    s = d.state()
+    rep.check("Drums opens the large BROWSER view", s.get("max") == 2 and s.get("view") == VIEW_ID["browser"],
+              "max=%s view=%s" % (s.get("max"), s.get("view")))
+    d.shot(os.path.join(out, "browser_max_drums.png"))
+    d.tap(*WORK_MAX)
+    time.sleep(0.8)
+    rep.check("restored", d.state().get("max") == -1)
+
+
+def t_keyboard(d, rep, out):
+    """0.4.6 Tab5 Keyboard: the console's key command goes through the same queue as the real keyboard."""
+    print("keyboard shortcuts (key command)")
+    def key(name, wait=0.35):
+        r = d.cmd("key " + name)
+        time.sleep(wait)
+        return r
+    d.tap(*tab("sequence"))
+    time.sleep(0.6)
+    rep.check("key command", key("space") == "ok key")
+    rep.check("Space plays", d.state().get("playing") == 1)
+    key("space")
+    rep.check("Space stops", d.state().get("playing") == 0)
+    v0 = d.state().get("view")
+    key("tab", 0.7)
+    v1 = d.state().get("view")
+    key("shift+tab", 0.7)
+    v2 = d.state().get("view")
+    rep.check("Tab / Shift+Tab views", v1 != v0 and v2 == v0, "view %s -> %s -> %s" % (v0, v1, v2))
+    key("ctrl+,", 0.8)
+    rep.check("Ctrl+, settings", d.state().get("modal") == 1)
+    d.shot(os.path.join(out, "key_settings.png"))
+    key("esc", 0.6)
+    rep.check("Esc closes", d.state().get("modal") == 0)
+    key("shift+f1", 0.8)
+    rep.check("Shift+F1 guide", d.state().get("modal") == 1)
+    key("esc", 0.6)
+    key("f11", 0.9)
+    rep.check("F11 enlarges the work area", d.state().get("max") == 2)
+    key("esc", 0.9)
+    rep.check("Esc restores it", d.state().get("max") == -1)
+    key("down")
+    s1 = d.state().get("scene")
+    key("up")
+    s2 = d.state().get("scene")
+    rep.check("Down / Up scene", s1 == 1 and s2 == 0, "scene %s, %s" % (s1, s2))
+    d.tap(*pad(0))
+    time.sleep(0.3)
+    key("right")
+    rep.check("Right: next pad", d.state().get("pad") == 1)
+    key("left")
+    a0 = d.audio().get("voices", 0)
+    key("a", 0.05)
+    a1 = d.audio()
+    key("release")
+    rep.check("A plays pad A1", a1.get("voices", 0) > 0 or a1.get("peak_l", 0) > 0.01, "voices %s" % a1.get("voices"))
+    d.tap(*tab("bass"))
+    time.sleep(0.7)
+    n0 = d.audio().get("bass_notes", 0)
+    key("a", 0.15)
+    key("release", 0.15)
+    n1 = d.audio().get("bass_notes", 0)
+    rep.check("A plays the 303 in BASS", n1 > n0, "bass notes %s -> %s" % (n0, n1))
+    d.shot(os.path.join(out, "key_bass.png"))
+    d.tap(*tab("sequence"))
+    time.sleep(0.6)
+
+
+TESTS = [("demo", t_demo), ("views", t_views), ("pads", t_pads), ("transport", t_transport), ("scenes", t_scenes),
          ("bass_keys", t_bass_keys), ("bass_full", t_bass_full), ("maximize", t_maximize), ("settings", t_settings),
-         ("help", t_help)]
+         ("help", t_help), ("browser_max", t_browser_max), ("keyboard", t_keyboard)]
 
 
 def main():

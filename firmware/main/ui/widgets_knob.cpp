@@ -463,7 +463,7 @@ lv_obj_t* knobCreate(lv_obj_t* parent, KnobLook look, int diameter, const ParamR
     lv_obj_remove_flag(kn, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(kn, LV_OBJ_FLAG_SCROLL_CHAIN);   // a vertical drag must never scroll a parent
     lv_obj_remove_flag(kn, LV_OBJ_FLAG_GESTURE_BUBBLE);
-    lv_obj_set_ext_click_area(kn, large ? 10 : 12);
+    lv_obj_set_ext_click_area(kn, (large ? 10 : 12) + hitBonus());
     k->knob = kn;
 
     // .knob-value: 11 px muted (12 px large) -> 13/14 px; fixed width so updates never relayout.
@@ -629,7 +629,7 @@ lv_obj_t* faderCreate(lv_obj_t* parent, int w, int h, const ParamRef& ref)
     lv_obj_remove_flag(o, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(o, LV_OBJ_FLAG_SCROLL_CHAIN);
     lv_obj_remove_flag(o, LV_OBJ_FLAG_GESTURE_BUBBLE);
-    lv_obj_set_ext_click_area(o, 10);
+    lv_obj_set_ext_click_area(o, 10 + hitBonus());
     f->obj = o;
     lv_obj_add_event_cb(o, faderCb, LV_EVENT_ALL, f);
     faderUpdate(f);

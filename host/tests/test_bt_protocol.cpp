@@ -456,7 +456,7 @@ static void testTimeline()
     CHECK(r.link.streamAcked());
     // RECOVERY: noted
     r.feed("RECOVERY 2 TRANSPORT_STALLED");
-    CHECK(r.st().recoveries == 1 && r.link.streamAcked() && strstr(r.st().message, "odnawia"));
+    CHECK(r.st().recoveries == 1 && r.link.streamAcked() && strstr(r.st().message, "renewing"));
     // TRANSPORT_FAILED: notice, next STREAM after 5 s
     r.clear();
     r.feed("STREAM_FAULT 2 TRANSPORT_FAILED");
@@ -524,7 +524,7 @@ static void testRecovery()
             CHECK(pulses[3] == 9000 + kAbsentRetryMs && pulses[4] == pulses[3] + 3000 + kAbsentRetryMs);
         }
         CHECK(r.count("USE") == 5 && r.count("STATUS") == 5);   // one probe per pulse
-        CHECK(!r.st().module && !strcmp(r.st().message, "Nie wykryto modułu Bluetooth (Pico) — sprawdź podłączenie"));
+        CHECK(!r.st().module && !strcmp(r.st().message, "No Bluetooth module (Pico) found — check the connection"));
         CHECK(r.link.phase() == Phase::Absent || r.link.phase() == Phase::Boot || r.link.phase() == Phase::Wake);
         // the module shows up later (plugged in): any reply brings the link up
         while (r.link.phase() != Phase::Absent) r.run(20);
@@ -549,7 +549,7 @@ static void testRecovery()
         CHECK(r.count("STATUS") >= 2 && r.link.phase() == Phase::Online);
         r.run(60);
         CHECK(r.link.phase() == Phase::Wake && r.link.wakeLow() && !r.st().awake &&
-              strstr(r.st().message, "nie odpowiada"));
+              strstr(r.st().message, "not answering"));
         r.run(200);
         r.feed("READY version=0.9.5 cap_airpods=1");
         CHECK(r.link.phase() == Phase::Online);
@@ -567,7 +567,7 @@ static void testRecovery()
         r.run(2460);
         CHECK(r.link.phase() == Phase::Stopping);
         r.run(40);
-        CHECK(r.link.phase() == Phase::Off && strstr(r.st().message, "nie potwierdził"));
+        CHECK(r.link.phase() == Phase::Off && strstr(r.st().message, "did not confirm"));
     }
     {   // the Pico goes to sleep on its own: woken again
         Rig r;
@@ -585,7 +585,7 @@ static void testRecovery()
         r.in.route = true;
         r.clear();
         r.run(100);
-        CHECK(!r.link.streamOn() && !strcmp(r.st().message, "Bluetooth wymaga 44,1 kHz"));
+        CHECK(!r.link.streamOn() && !strcmp(r.st().message, "Bluetooth needs 44.1 kHz"));
         for (const auto& s : r.sent) CHECK(s.compare(0, 6, "STREAM") != 0);
         r.in.audio_rate = 44100;
         r.step();
@@ -600,7 +600,7 @@ static void testRecovery()
         // the headphones disconnect: STOP, nothing until they are back
         r.clear();
         r.feed("STATE connection=0 audio=0");
-        CHECK(r.has("STOP") && !r.link.streamOn() && strstr(r.st().message, "rozłączone"));
+        CHECK(r.has("STOP") && !r.link.streamOn() && strstr(r.st().message, "disconnected"));
         // a Pico restart (READY) drops the stream without a STOP
         r.feed("STATE connection=2 audio=0");
         CHECK(r.has("STREAM 3"));
@@ -690,7 +690,7 @@ static void testQueue()
     r.feed("END_LIST");
     r.clear();
     r.feed("SCAN_DONE");
-    CHECK(!r.st().scanning && r.has("LIST") && strstr(r.st().message, "zakończone"));
+    CHECK(!r.st().scanning && r.has("LIST") && strstr(r.st().message, "finished"));
     // AirPods mode only with AirPods connected
     r.feed("STATE connection=2 audio=0");
     r.feed("AIRPODS connected=1 mode=1 left=50 right=50 case=50 ears=2 auto_pause=0");
@@ -705,7 +705,7 @@ static void testQueue()
     r.feed("SELECTED Already connected");
     CHECK(r.has("LIST"));
     r.feed("SELECTED Sony; restarting to connect");
-    CHECK(!strcmp(r.st().message, "Wybrano: Sony"));
+    CHECK(!strcmp(r.st().message, "Chosen: Sony"));
     // disable clears the queue
     CHECK(r.link.queue("TEST"));
     r.in.enabled = false;
@@ -850,7 +850,7 @@ static void testHost()
     CHECK(hal::audioStart(48000, 64, &Tone::render, nullptr));
     halHostBtAdvance(20);
     hal::btStatus(st);
-    CHECK(!strcmp(st.message, "Bluetooth wymaga 44,1 kHz"));
+    CHECK(!strcmp(st.message, "Bluetooth needs 44.1 kHz"));
     const uint64_t frames = halHostBtBridgeFrames();
     halHostRenderAudio(64, buf);
     CHECK(halHostBtBridgeFrames() == frames && buf[0] == 1000);
@@ -875,7 +875,7 @@ static void testHost()
     CHECK(!got.empty() && got.back() == "SLEEP");
     halHostBtFeed("STANDBY");
     hal::btStatus(st);
-    CHECK(!st.enabled && !st.awake && !strcmp(st.message, "Bluetooth wyłączony"));
+    CHECK(!st.enabled && !st.awake && !strcmp(st.message, "Bluetooth off"));
     halHostBtReset();
     hal::btStatus(st);
     CHECK(st.revision == 0 && !st.device_count && halHostBtNow() == 0);

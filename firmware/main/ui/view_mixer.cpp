@@ -207,13 +207,13 @@ void onLimiter(lv_event_t*)
 {
     const bool on = !app().project().limiter_on;
     app().setLimiter(on);
-    toast(on ? "Limiter: włączony" : "Limiter: wyłączony");
+    toast(on ? "Limiter: on" : "Limiter: off");
 }
 void onClick(lv_event_t*)
 {
     const bool on = !app().project().metronome;
     app().setMetronome(on);
-    toast(on ? "Metronom: włączony" : "Metronom: wyłączony");
+    toast(on ? "Metronome: on" : "Metronome: off");
 }
 
 // Centred fixed-width label inside a strip.

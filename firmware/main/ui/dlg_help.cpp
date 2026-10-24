@@ -1,5 +1,5 @@
-// UI GUIDE dialog (prototype .help-grid): eight cards in two columns describing how the real
-// controls of ORBIT DRUM work (Polish text, English card titles like the prototype).
+// UI GUIDE dialog (prototype .help-grid): cards in two columns describing how the real controls of ORBIT DRUM
+// work (0.4.6: English, two more cards for the Tab5 Keyboard).
 #include <string.h>
 
 #include "ui/app.h"
@@ -14,6 +14,7 @@ namespace {
 
 constexpr int kCardW = (824 - 2 - 2 * 26 - 18) / 2;   // 376
 constexpr int kTextW = kCardW - 2 - 2 * 14;            // card content width
+constexpr int kCardCount = 10, kCardRows = kCardCount / 2;
 
 // Greedy word wrap measured with the label font. LVGL 9.3 starts the next line with the space
 // when only that space overflows; pre-broken lines avoid the indented line starts.
@@ -52,34 +53,40 @@ struct Card {
     const char* text;
 };
 
-const Card kCards[8] = {
+const Card kCards[kCardCount] = {
     {"1. Pads & velocity",
-     "Dotknięcie padu gra od razu, także kilkoma palcami naraz (siła: Ustawienia "
-     "\xE2\x86\x92 Touch, Fixed / Position). Dotknięcie wybiera pad do edycji; "
-     "REC + PLAY nagrywa uderzenia do sceny."},
+     "Tap a pad to play it at once, with several fingers too (velocity: Settings \xE2\x86\x92 Touch, Fixed / "
+     "Position). The tap also picks the pad to edit; REC + PLAY records the hits into the scene."},
     {"2. Mute / Solo",
-     "Włącz MUTE albo SOLO w nagłówku PADS i dotykaj padów, aby je wyciszać lub solować "
-     "(znak M / S na padzie). Ponowne dotknięcie przycisku wraca do grania."},
+     "Turn on MUTE or SOLO in the PADS head and tap pads to mute or solo them (M / S mark on the pad). Tap the "
+     "button again to go back to playing."},
     {"3. Sequencer & bass",
-     "Dotknij kroku lub przeciągnij, aby malować; VELOCITY / PROBABILITY / MORE w pionie. BASS: linia "
-     "303 \xE2\x80\x94 wybierz krok i zagraj klawisz albo rysuj nuty; KEYS: dwie oktawy na żywo (kilka palców naraz), bez zapisu."},
+     "Tap a step or drag to paint; VELOCITY / PROBABILITY / MORE edit vertically. BASS: a 303 line from C0 to C5 "
+     "\xE2\x80\x94 pick a step and play a key, or draw notes; KEYS: two octaves live (several fingers), not recorded."},
     {"4. Knobs & faders",
-     "Przeciągnij w pionie; podwójne dotknięcie = domyślna. VOLUME: głośność wyjścia (głośnik, "
-     "słuchawki i BT pamiętają swoją). Głośność padu: TRIM \xE2\x86\x92 PAD VOL."},
+     "Drag vertically; double tap = default. VOLUME: output level (speaker, headphones and Bluetooth keep their "
+     "own). Pad level: TRIM \xE2\x86\x92 PAD VOL."},
     {"5. Sample editor",
-     "Przeciągaj uchwyty START / END; podwójne dotknięcie uchwytu przyciąga do przejścia przez "
-     "zero. SLICE: AUTO lub GRID, dotknij plastra, TO PADS rozkłada plastry na pady. "
-     "Przytrzymaj LAYER: wczytaj / wyczyść / tryb."},
+     "Drag the START / END handles; double tap a handle to snap it to a zero crossing. SLICE: AUTO or GRID, tap a "
+     "slice, TO PADS spreads the slices over the pads. Hold LAYER: load / clear / mode."},
     {"6. Scenes & song",
-     "A\xE2\x80\x93" "D wybiera scenę (podczas grania zmiana w takt \xE2\x80\x94 Launch quantization). "
-     "Komórki osi układają piosenkę, FOLLOW gra ją po kolei. GRID i LENGTH: podział i długość. "
-     "UNDO (8 s) cofa RANDOM i CLEAR."},
+     "A\xE2\x80\x93" "D picks the scene (while playing it changes on the beat \xE2\x80\x94 Launch quantization). The "
+     "timeline cells arrange the song, FOLLOW plays it in order. GRID and LENGTH: division and length. UNDO (8 s) "
+     "takes back RANDOM and CLEAR."},
     {"7. Mixer & FX",
-     "Suwaki w dB, M / S i PAN na kanał, mierniki na żywo; pad trafia na kanał z SAMPLE DETAILS "
-     "\xE2\x86\x92 OUTPUT. Widok FX: REVERB, DELAY, makra LO-FI / WIDE / PUMP / SPACE i limiter."},
+     "Faders in dB, M / S and PAN per channel, live meters; a pad goes to the channel set in SAMPLE DETAILS "
+     "\xE2\x86\x92 OUTPUT. FX view: REVERB, DELAY, the LO-FI / WIDE / PUMP / SPACE macros and the limiter."},
     {"8. Project, SD & settings",
-     "SAVE, NEW PROJECT (pusty), DELETE, EXPORT JSON. Narożniki powiększają panel (okno główne: obok "
-     "zakładek; BASS: cały ekran). Kolory (tło, akcent): Ustawienia \xE2\x86\x92 Display."},
+     "SAVE, NEW PROJECT (empty), DELETE, EXPORT JSON. The corner marks enlarge a panel (the main one: next to the "
+     "tabs; BASS: the whole screen); in the large BROWSER a category opens its files at once. Colors and "
+     "Interface size: Settings \xE2\x86\x92 Display."},
+    {"9. Tab5 Keyboard (like Live)",
+     "Space play / stop, Shift+Space continue, F9 record, Tab / Shift+Tab next / previous view. A W S E D F T G Y "
+     "H U J K: notes (BASS: the 303, else the pads), Z / X octave, C / V velocity, M notes on / off."},
+    {"10. Keyboard: more keys",
+     "Ctrl+Z undo, Ctrl+S save, Ctrl+O / Ctrl+N projects, Ctrl+, settings, Esc closes. F1\xE2\x80\x93" "F8 mute pads, "
+     "Up / Down scene, Left / Right pad, 0 mutes the pad, F11 enlarges the work area, "
+     "Shift+F1 this guide. Text fields take typing."},
 };
 
 }  // namespace
@@ -99,11 +106,11 @@ void open()
     lv_obj_set_style_pad_column(grid, 18, 0);
     lv_obj_set_style_pad_row(grid, 11, 0);
     static const int32_t kCols[] = {LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST};
-    static const int32_t kRowsDsc[] = {LV_GRID_CONTENT, LV_GRID_CONTENT, LV_GRID_CONTENT, LV_GRID_CONTENT,
-                                       LV_GRID_TEMPLATE_LAST};
+    static const int32_t kRowsDsc[kCardRows + 1] = {LV_GRID_CONTENT, LV_GRID_CONTENT, LV_GRID_CONTENT,
+                                                    LV_GRID_CONTENT, LV_GRID_CONTENT, LV_GRID_TEMPLATE_LAST};
     lv_obj_set_grid_dsc_array(grid, kCols, kRowsDsc);
-    lv_obj_t* cards[8] = {};
-    for (int i = 0; i < 8; ++i) {
+    lv_obj_t* cards[kCardCount] = {};
+    for (int i = 0; i < kCardCount; ++i) {
         // .help-grid > div: control bg, line border, padding 14, radius 7.
         lv_obj_t* card = lv_obj_create(grid);
         lv_obj_remove_style_all(card);
@@ -130,12 +137,13 @@ void open()
     }
     // Both cards of a row get the height of the taller one (CSS grid rows stretch their cells).
     lv_obj_update_layout(grid);
-    for (int r = 0; r < 4; ++r) {
+    for (int r = 0; r < kCardRows; ++r) {
         const int32_t h0 = lv_obj_get_height(cards[r * 2]), h1 = lv_obj_get_height(cards[r * 2 + 1]);
         const int32_t h = h0 > h1 ? h0 : h1;
         lv_obj_set_height(cards[r * 2], h);
         lv_obj_set_height(cards[r * 2 + 1], h);
     }
+    modalScale(modalScaleFor(1.0f));   // Display > Interface size
 }
 
 }  // namespace dlg_help

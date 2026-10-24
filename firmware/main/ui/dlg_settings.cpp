@@ -55,6 +55,7 @@ constexpr int kWinW = 824, kWinMaxH = 650, kHeadH = 56, kFootH = 58;
 constexpr int kNavW = 175;
 constexpr int kPaneW = kWinW - 2 - kNavW;                    // 647
 constexpr int kShellMax = kWinMaxH - kHeadH - kFootH - 2;    // 534: every section (prototype min 370)
+constexpr float kSettingsScale = 1.25f;                       // 0.4.6: drawn at 1030 px wide (easier to hit)
 constexpr int kCtrlW = 174;                                  // .ui-input / .ui-select
 // --settings-nav #dadcde rounds to a visibly magenta RGB565 grey (222,219,222); LIGHT's nav_fill #deddde
 // gives the neutral (222,223,222) on the panel.
@@ -93,6 +94,8 @@ Look lookOnScreen()
 // ---------------------------------------------------------------- state
 struct Dlg {
     bool open = false;
+    bool building = false;        // a section is being built (scaled as a whole when it is done)
+    int ui_size0 = 0;             // Display > Interface size when the dialog opened
     bool applied = false;
     bool live_bright = false;
     bool edited = false;          // any control changed the edit copy / name / quantization / limiter
@@ -357,14 +360,14 @@ void bufNote()
     const float blocks = e.buffer_frames <= 64 ? 5.0f : 4.0f;
     const float ms = blocks * (float)e.buffer_frames * 1000.0f / (float)(e.sample_rate ? e.sample_rate : kRate48);
     char t[64];
-    snprintf(t, sizeof t, "Bufor audio \xE2\x80\xA2 opóźnienie ~%.1f ms", (double)ms);
+    snprintf(t, sizeof t, "Audio buffer \xE2\x80\xA2 latency ~%.1f ms", (double)ms);
     setText(d.buf_note, t);
 }
 void rateNote()
 {
     if (d.rate_note)
-        setText(d.rate_note, app().btEnabled() ? "Bluetooth włączony: silnik pracuje z 44,1 kHz, ten wybór wróci po jego wyłączeniu"
-                                               : "Zmiana restartuje silnik audio");
+        setText(d.rate_note, app().btEnabled() ? "Bluetooth on: the engine runs at 44.1 kHz, this choice returns when it is off"
+                                               : "A change restarts the audio engine");
 }
 void onRate(int i, void*)
 {
@@ -419,7 +422,7 @@ void mapNote()
 {
     if (!d.map_note) return;
     char t[64];
-    snprintf(t, sizeof t, "Powiązania CC: %d / 32 (zapisane na karcie SD)", app().midiMapCount());
+    snprintf(t, sizeof t, "CC assignments: %d / 32 (saved on the SD card)", app().midiMapCount());
     setText(d.map_note, t);
 }
 
@@ -430,7 +433,7 @@ void onClearMap(lv_event_t*)
     if (!d.clear_armed || lv_tick_elaps(d.clear_ms) >= 3000) {
         d.clear_armed = true;
         d.clear_ms = lv_tick_get();
-        app().toast("Dotknij ponownie, aby usunąć powiązania MIDI");
+        app().toast("Tap again to clear the MIDI assignments");
         return;
     }
     d.clear_armed = false;
@@ -454,8 +457,14 @@ void velNote()
 {
     if (!d.vel_note) return;
     char t[64];
-    snprintf(t, sizeof t, "Velocity w trybie Fixed: %d", (int)E().fixed_velocity);
+    snprintf(t, sizeof t, "Velocity in Fixed mode: %d", (int)E().fixed_velocity);
     setText(d.vel_note, t);
+}
+void onUiSize(int i, void*)
+{
+    if (i < 0 || i > 2) return;
+    if (E().ui_size != (uint8_t)i) edited();
+    E().ui_size = (uint8_t)i;
 }
 void onVelMode(int i, void*)
 {
@@ -484,7 +493,7 @@ bool confirmDiscard()
     }
     d.discard_armed = true;
     d.discard_ms = lv_tick_get();
-    app().toast("Niezapisane ustawienia \xE2\x80\x94 dotknij ponownie, aby odrzucić (APPLY zapisuje)");
+    app().toast("Unsaved settings \xE2\x80\x94 tap again to discard (APPLY saves)");
     return false;
 }
 
@@ -497,7 +506,7 @@ void scrimGuard(lv_event_t* e)
     if (code == LV_EVENT_CLICKED && lv_event_get_target(e) == lv_event_get_current_target(e)) {
         if (d.edited && !d.applied) {
             lv_event_stop_processing(e);
-            app().toast("Niezapisane ustawienia \xE2\x80\x94 APPLY zapisuje, X odrzuca");
+            app().toast("Unsaved settings \xE2\x80\x94 APPLY saves, X discards");
         }
     } else if (code == LV_EVENT_KEY && lv_event_get_key(e) == LV_KEY_ESC) {
         if (!confirmDiscard()) lv_event_stop_processing(e);
@@ -547,7 +556,7 @@ void updateLive(bool force)
                 snprintf(t, sizeof t, "\xE2\x97\x8F %s", (n && n[0]) ? n : "USB MIDI");
             lv_obj_set_style_text_color(d.midi_status, c(col::accent_dark), 0);
         } else {
-            snprintf(t, sizeof t, "Brak urządzenia");
+            snprintf(t, sizeof t, "No device");
             lv_obj_set_style_text_color(d.midi_status, c(col::muted), 0);
         }
         setText(d.midi_status, t);
@@ -557,29 +566,29 @@ void updateLive(bool force)
     const int cap = (int)tel.voice_cap.load(std::memory_order_relaxed);   // voice limit, lowered by the CPU governor
     if (d.live_cpu) {
         const unsigned xr = (unsigned)tel.xruns.load(std::memory_order_relaxed);   // driver underruns (App bridges them)
-        snprintf(t, sizeof t, "CPU audio %d %%  \xE2\x80\xA2  głosy %d / %d  \xE2\x80\xA2  opóźnienie %.1f ms  \xE2\x80\xA2  xruns %u",
+        snprintf(t, sizeof t, "Audio CPU %d %%  \xE2\x80\xA2  voices %d / %d  \xE2\x80\xA2  latency %.1f ms  \xE2\x80\xA2  xruns %u",
                  (int)(app().cpuLoad() * 100.0f + 0.5f), app().activeVoices(), cap, (double)app().latencyMs(), xr);
         setText(d.live_cpu, t);
     }
     if (d.voice_note) {
         const int lim = app().engine().voiceLimit();
         if (cap < lim)
-            snprintf(t, sizeof t, "Teraz %d: przeciążenie CPU obniżyło limit \xE2\x80\x94 zwiększ bufor", cap);
+            snprintf(t, sizeof t, "Now %d: a CPU overload lowered the limit \xE2\x80\x94 raise the buffer", cap);
         else
-            snprintf(t, sizeof t, "Maksymalna polifonia (przy przeciążeniu CPU silnik obniża ją sam)");
+            snprintf(t, sizeof t, "Maximum polyphony (the engine lowers it by itself on a CPU overload)");
         setText(d.voice_note, t);
     }
     if (d.live_diag) {
         hal::Diagnostics dg;
         hal::diagnostics(dg);
         char hp[48];
-        if (dg.ioe_inputs < 0) snprintf(hp, sizeof hp, "HP_DET: brak odczytu");
+        if (dg.ioe_inputs < 0) snprintf(hp, sizeof hp, "HP_DET: no reading");
         else
             snprintf(hp, sizeof hp, "HP_DET 0x%02X (bit 7 %d)%s", (unsigned)(dg.ioe_inputs & 0xFF), (dg.ioe_inputs >> 7) & 1,
-                     dg.hp_det_trusted ? "" : ", niezweryfikowany");
+                     dg.hp_det_trusted ? "" : ", not verified");
         snprintf(t, sizeof t,
-                 "Max: render %u / zapis %u / okres %u \xC2\xB5s, przeciążone bloki %u, DMA %u  \xE2\x80\xA2  obraz: obrót %u / "
-                 "naprawa %u / publikacja %u \xC2\xB5s, bufor %u wierszy %s  \xE2\x80\xA2  %s",
+                 "Max: render %u / write %u / period %u \xC2\xB5s, overloaded blocks %u, DMA %u  \xE2\x80\xA2  display: rotate %u / "
+                 "repair %u / publish %u \xC2\xB5s, buffer %u rows %s  \xE2\x80\xA2  %s",
                  (unsigned)dg.audio_render_max_us, (unsigned)dg.audio_write_max_us, (unsigned)dg.audio_period_max_us,
                  (unsigned)dg.audio_overload_blocks, (unsigned)dg.audio_dma_buffers, (unsigned)dg.rotate_max_us,
                  (unsigned)dg.repair_max_us, (unsigned)dg.publish_max_us, (unsigned)dg.draw_rows,
@@ -587,7 +596,7 @@ void updateLive(bool force)
         setText(d.live_diag, t);
     }
     if (d.live_mem) {
-        snprintf(t, sizeof t, "Wolna pamięć: RAM %u KB  \xE2\x80\xA2  PSRAM %.1f MB", (unsigned)(hal::freeInternal() / 1024u),
+        snprintf(t, sizeof t, "Free memory: RAM %u KB  \xE2\x80\xA2  PSRAM %.1f MB", (unsigned)(hal::freeInternal() / 1024u),
                  (double)hal::freePsram() / (1024.0 * 1024.0));
         setText(d.live_mem, t);
     }
@@ -596,24 +605,24 @@ void updateLive(bool force)
 // ---------------------------------------------------------------- sections
 void buildGeneral()
 {
-    lv_obj_t* p = paneCreate(0, "General", "Projekt i zachowanie aplikacji.");
-    lv_obj_t* r = row(p, "Project name", "Nazwa bieżącego projektu (plik na karcie SD)");
+    lv_obj_t* p = paneCreate(0, "General", "The project and how the app behaves.");
+    lv_obj_t* r = row(p, "Project name", "Name of the current project (file on the SD card)");
     lv_obj_t* f = textFieldCreate(r, kCtrlW, d.name, (int)sizeof(d.name) - 1, onName, nullptr, "PROJECT NAME");
     lv_obj_set_height(f, 35);
-    r = row(p, "Auto-save", "Zapis co 5 minut, gdy są niezapisane zmiany");
+    r = row(p, "Auto-save", "Saves every 5 minutes when there are unsaved changes");
     flagToggle(r, E().autosave);
-    r = row(p, "Launch quantization", "Moment zmiany sceny podczas grania");
+    r = row(p, "Launch quantization", "When the scene changes while playing");
     static const char* const kQuant[] = {"1 Bar", "1/4", "1/8", "Off"};
     selectCreate(r, kCtrlW, 37, kQuant, 4, d.quant, onQuant, nullptr);
-    r = row(p, "Pad audition", "Wybór padu odtwarza jego dźwięk");
+    r = row(p, "Pad audition", "Selecting a pad plays its sound");
     flagToggle(r, E().pad_audition);
 }
 
 void buildAudio()
 {
     Settings& e = E();
-    lv_obj_t* p = paneCreate(1, "Audio engine", "Kodek ES8388, 32 głosy, wewnętrznie float 32-bit.");
-    lv_obj_t* r = row(p, "Output", "Wyjście audio");
+    lv_obj_t* p = paneCreate(1, "Audio engine", "ES8388 codec, 32 voices, 32-bit float inside.");
+    lv_obj_t* r = row(p, "Output", "Audio output");
     static const char* const kOut[] = {"Auto (ES8388)", "Speaker", "Headphones 3.5 mm"};
     selectCreate(r, kCtrlW, 37, kOut, 3, (int)e.output < 3 ? (int)e.output : 0, onOutput, nullptr);
     r = row(p, "Sample rate", "");
@@ -635,11 +644,11 @@ void buildAudio()
         if (kVoiceLimits[i] == e.voice_limit) vi = i;
     selectCreate(r, kCtrlW, 37, kVoiceItems, 5, vi, onVoices, nullptr);
     // The project's limiter (one switch with mixer L / FX LIMITER), not a second copy of it.
-    r = row(p, "Master limiter", "Ogranicznik na wyjściu (jak L w mikserze); też domyślny dla nowych projektów");
+    r = row(p, "Master limiter", "Limiter on the output (like L in the mixer); also the default for new projects");
     if (d.limiter < 0) d.limiter = d.limiter0 = app().project().limiter_on ? 1 : 0;
     toggleCreate(r, d.limiter != 0, onLimiter, nullptr);
     // Output levels live on the VOLUME knob (0.3): each output keeps its own, switched by itself.
-    r = row(p, "Volume", "Pokrętło VOLUME: głośnik, słuchawki i Bluetooth pamiętają własną głośność");
+    r = row(p, "Volume", "VOLUME knob: speaker, headphones and Bluetooth keep their own level");
     char lv[64];
     snprintf(lv, sizeof lv, "SPK %d%% · HP %d%% · BT %d%%", app().outputVolume(OutKind::Speaker),
              app().outputVolume(OutKind::Headphones), app().outputVolume(OutKind::Bluetooth));
@@ -649,21 +658,21 @@ void buildAudio()
 void buildMidi()
 {
     Settings& e = E();
-    lv_obj_t* p = paneCreate(2, "MIDI", "USB MIDI (host, gniazdo USB-A): nuty padów, transport i zegar.");
-    lv_obj_t* r = row(p, "Input device", "Urządzenie wejściowe");
+    lv_obj_t* p = paneCreate(2, "MIDI", "USB MIDI (host, USB-A port): pad notes, transport and clock.");
+    lv_obj_t* r = row(p, "Input device", "The controller to listen to");
     static const char* const kIn[] = {"USB MIDI \xE2\x80\x94 Auto", "None"};
     selectCreate(r, kCtrlW, 37, kIn, 2, e.midi_usb ? 0 : 1, onMidiIn, nullptr);
-    r = row(p, "Status", "Podłączony kontroler");
+    r = row(p, "Status", "Connected controller");
     d.midi_status = valueText(r, "", f_r14);
-    r = row(p, "MIDI clock sync", "Tempo z zewnętrznego zegara MIDI");
+    r = row(p, "MIDI clock sync", "Tempo from an external MIDI clock");
     flagToggle(r, e.midi_clock_in);
-    r = row(p, "Clock out", "Wysyłanie zegara 24 PPQN przez USB");
+    r = row(p, "Clock out", "Sends a 24 PPQN clock over USB");
     flagToggle(r, e.midi_clock_out);
-    r = row(p, "Channel", "Kanał nut padów (domyślnie 10)");
+    r = row(p, "Channel", "Channel of the pad notes (default 10)");
     static const char* const kCh[] = {"Omni", "1", "2", "3", "4", "5", "6", "7", "8",
                                       "9", "10", "11", "12", "13", "14", "15", "16"};
     selectCreate(r, kCtrlW, 37, kCh, 17, e.midi_channel <= 16 ? e.midi_channel : 10, onChannel, nullptr);
-    r = row(p, "Learn mode", "Rusz pokrętło, potem kontroler: ten CC steruje pokrętłem");
+    r = row(p, "Learn mode", "Move a knob, then a controller: that CC drives the knob");
     d.learn_btn = actionBtn(r, "START LEARN", false, 0, 34);
     lv_obj_add_event_cb(d.learn_btn, onLearn, LV_EVENT_CLICKED, nullptr);
     learnLook(app().midiLearning());
@@ -762,31 +771,31 @@ void btRefresh()
     uint32_t color = col::muted;
     const char* ver = st.version[0] ? st.version : "?";
     if (!on) {
-        snprintf(t, sizeof t, "Wyłączony");
+        snprintf(t, sizeof t, "Off");
     } else if (!st.module) {
-        snprintf(t, sizeof t, "szukam modułu\xE2\x80\xA6");
+        snprintf(t, sizeof t, "looking for the module\xE2\x80\xA6");
     } else if (st.connected) {
-        snprintf(t, sizeof t, "Pico %s \xC2\xB7 połączono: %s", ver, st.connected_name[0] ? st.connected_name : "?");
+        snprintf(t, sizeof t, "Pico %s \xC2\xB7 connected: %s", ver, st.connected_name[0] ? st.connected_name : "?");
         color = col::accent_dark;
     } else {
-        snprintf(t, sizeof t, st.scanning ? "Pico %s \xC2\xB7 skanowanie\xE2\x80\xA6" : "Pico %s \xC2\xB7 brak połączenia", ver);
+        snprintf(t, sizeof t, st.scanning ? "Pico %s \xC2\xB7 scanning\xE2\x80\xA6" : "Pico %s \xC2\xB7 not connected", ver);
         color = col::ink;
     }
     setText(d.bt_module, t);
     lv_obj_set_style_text_color(d.bt_module, c(color), 0);
-    const char* note = !on                ? "Mostek: I2S G5 / G18 / G19, UART G6 \xE2\x86\x92 G32, G33 \xE2\x86\x92 G46"
+    const char* note = !on                ? "Bridge: I2S G5 / G18 / G19, UART G6 \xE2\x86\x92 G32, G33 \xE2\x86\x92 G46"
                        : st.message[0]   ? st.message
-                       : !st.module      ? "Budzenie modułu Pico (impuls na G6)"
-                       : st.streaming    ? "Strumień audio 44,1 kHz \xC2\xB7 SBC"
-                                         : "Moduł gotowy";
+                       : !st.module      ? "Waking the Pico (pulse on G6)"
+                       : st.streaming    ? "Audio stream 44.1 kHz \xC2\xB7 SBC"
+                                         : "Module ready";
     // 0.4.4: while streaming, how much audio waits in the Pico (its ring between the 30 ms pulls, on average)
     char nb[120];
     if (on && st.streaming && st.pico_floor >= 0) {
         const int ms = (int)((st.pico_floor + 661) * 10 / 441);
         if (st.resyncs)
-            snprintf(nb, sizeof nb, "Strumień 44,1 kHz \xC2\xB7 SBC \xC2\xB7 bufor Pico ok. %d ms \xC2\xB7 wyrównania: %lu", ms,
+            snprintf(nb, sizeof nb, "Stream 44.1 kHz \xC2\xB7 SBC \xC2\xB7 Pico buffer about %d ms \xC2\xB7 re-syncs: %lu", ms,
                      (unsigned long)st.resyncs);
-        else snprintf(nb, sizeof nb, "Strumień 44,1 kHz \xC2\xB7 SBC \xC2\xB7 bufor Pico ok. %d ms", ms);
+        else snprintf(nb, sizeof nb, "Stream 44.1 kHz \xC2\xB7 SBC \xC2\xB7 Pico buffer about %d ms", ms);
         note = nb;
     }
     setText(d.bt_note, note);
@@ -798,7 +807,7 @@ void btRefresh()
         podsPct(l, sizeof l, st.airpods_left);
         podsPct(r, sizeof r, st.airpods_right);
         podsPct(k, sizeof k, st.airpods_case);
-        snprintf(t, sizeof t, "L %s \xC2\xB7 R %s \xC2\xB7 etui %s \xE2\x80\xA2 tryb słuchania", l, r, k);
+        snprintf(t, sizeof t, "L %s \xC2\xB7 R %s \xC2\xB7 case %s \xE2\x80\xA2 listening mode", l, r, k);
         setText(d.bt_pods_note, t);
         if (st.airpods_mode >= 1 && st.airpods_mode <= 4) selectSet(d.bt_pods_sel, st.airpods_mode - 1);
         lv_obj_remove_flag(d.bt_pods, LV_OBJ_FLAG_HIDDEN);
@@ -825,32 +834,33 @@ void btRefresh()
     }
     if (n == 0) {
         lv_obj_t* e = label(d.bt_list,
-                            on ? "Brak urządzeń \xE2\x80\x94 włącz parowanie w słuchawkach i dotknij SCAN"
-                               : "Włącz Bluetooth, aby zobaczyć zapisane urządzenia",
+                            on ? "No devices \xE2\x80\x94 put the headphones in pairing mode and tap SCAN"
+                               : "Turn on Bluetooth to see the saved devices",
                             f_r14, col::muted);
         lv_obj_set_style_pad_ver(e, 12, 0);
         lv_obj_set_style_pad_left(e, 10, 0);   // in line with the device names
     }
+    if (!d.building) modalScaleKids(d.bt_list, 0);   // the larger dialog: new rows at its scale
 }
 
 void buildBluetooth()
 {
     const Settings& s = app().settings();
     lv_obj_t* p = paneCreate(3, "Bluetooth",
-                             "Słuchawki i głośniki Bluetooth (A2DP, SBC) przez mostek Pico. Zmiany działają od razu. Głośność: pokrętło VOLUME.");
-    lv_obj_t* r = row(p, "Bluetooth", "Moduł Pico z Aurory, złącze M5-Bus");
+                             "Bluetooth headphones and speakers (A2DP, SBC) through the Pico bridge. Changes act at once. Level: the VOLUME knob.");
+    lv_obj_t* r = row(p, "Bluetooth", "Pico module from the Aurora, M5-Bus connector");
     d.bt_toggle = toggleCreate(r, app().btEnabled(), onBt, nullptr);
     r = row(p, "Module", "");
     d.bt_note = g_last_note;
     d.bt_module = valueText(r, "", f_r14);
     // Output and AirPods above the device list (up to 32 rows), so they stay in view.
-    r = row(p, "Also speaker / jack", "Wyjście: dźwięk także z głośnika lub gniazda 3,5 mm (ok. 0,2 s przed Bluetooth)");
+    r = row(p, "Also speaker / jack", "Output: sound also from the speaker or the 3.5 mm jack (about 0.2 s ahead of Bluetooth)");
     toggleCreate(r, s.bt_local != 0, onBtLocal, nullptr);
     d.bt_pods = row(p, "AirPods", "");
     d.bt_pods_note = g_last_note;
     static const char* const kModes[] = {"OFF", "ANC", "TRANSPARENCY", "ADAPTIVE"};
     d.bt_pods_sel = selectCreate(d.bt_pods, kCtrlW, 37, kModes, 4, 0, onPodsMode, nullptr);
-    r = row(p, "Devices", "Dotknij urządzenie, aby połączyć (Pico zapamiętuje do 8)");
+    r = row(p, "Devices", "Tap a device to connect (the Pico remembers up to 8)");
     lv_obj_t* btns = plain(r);
     lv_obj_set_size(btns, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(btns, LV_FLEX_FLOW_ROW);
@@ -863,9 +873,9 @@ void buildBluetooth()
     lv_obj_set_size(d.bt_list, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(d.bt_list, LV_FLEX_FLOW_COLUMN);
     lv_obj_t* n = label(p,
-                        "Bluetooth dodaje ok. 0,15\xE2\x80\x93" "0,25 s opóźnienia \xE2\x80\x94 do grania na padach na żywo "
-                        "używaj głośnika lub słuchawek przewodowych. Gdy Bluetooth jest włączony, silnik audio "
-                        "pracuje z 44,1 kHz.",
+                        "Bluetooth adds about 0.15\xE2\x80\x93" "0.25 s of delay \xE2\x80\x94 to play the pads live "
+                        "use the speaker or wired headphones. With Bluetooth on, the audio engine "
+                        "runs at 44.1 kHz.",
                         f_r12, col::muted);
     lv_obj_set_width(n, LV_PCT(100));
     lv_label_set_long_mode(n, LV_LABEL_LONG_MODE_WRAP);
@@ -898,7 +908,7 @@ void customShow()
     lv_obj_set_style_bg_color(d.preview, c(a), 0);
     lv_obj_set_style_text_color(d.preview_txt, c(onAccentFor(a)), 0);
     char t[64];
-    snprintf(t, sizeof t, "Odcień %d\xC2\xB0 \xC2\xB7 nasycenie %d %%", hue, shown_sat);
+    snprintf(t, sizeof t, "Hue %d\xC2\xB0 \xC2\xB7 saturation %d %%", hue, shown_sat);
     setText(d.custom_note, t);
     // the knobs show the colour they pick; the saturation track follows the hue
     lv_obj_set_style_bg_color(d.hue_sl, c(hueColor((float)hue, 1.f)), LV_PART_KNOB);
@@ -916,11 +926,11 @@ void colorsShow()
     for (int i = 0; i <= kThemeCount; ++i)
         if (d.theme_sw[i]) lv_obj_set_style_outline_width(d.theme_sw[i], i == want.theme ? 2 : 0, 0);
     char t[96];
-    if (want.base == now.base) snprintf(t, sizeof t, "Tło, panele, pady i pokrętła: %s", baseName(want.base));
+    if (want.base == now.base) snprintf(t, sizeof t, "Background, panels, pads and knobs: %s", baseName(want.base));
     else snprintf(t, sizeof t, "%s \xE2\x80\x94 po APPLY i szybkim restarcie ORBIT", baseName(want.base));
     setText(d.base_note, t);
     const char* an = want.theme == kThemeCustom ? "CUSTOM" : kThemes[want.theme].name;
-    if (want.accentLike(now)) snprintf(t, sizeof t, "Kolor akcentu interfejsu: %s", an);
+    if (want.accentLike(now)) snprintf(t, sizeof t, "Accent color of the interface: %s", an);
     else snprintf(t, sizeof t, "%s \xE2\x80\x94 po APPLY i restarcie", an);
     setText(d.theme_note, t);
     if (d.custom_row) {
@@ -1055,6 +1065,7 @@ lv_obj_t* swatchRow(lv_obj_t* r)
     lv_obj_set_size(sw, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(sw, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_pad_column(sw, 7, 0);
+    lv_obj_set_style_pad_right(sw, 4, 0);   // the ring of the last swatch stays inside the row (not cut)
     // the chosen swatch's ring lies 2..4 px outside it: drawn (and redrawn) there too
     lv_obj_add_flag(sw, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
     lv_obj_add_event_cb(sw, swatchRowExt, LV_EVENT_REFR_EXT_DRAW_SIZE, nullptr);
@@ -1110,7 +1121,7 @@ lv_obj_t* customSlider(lv_obj_t* parent, const char* caption, int min, int max, 
 void buildDisplay()
 {
     Settings& e = E();
-    lv_obj_t* p = paneCreate(4, "Display", "Ekran 5\" 1280 \xC3\x97 720 (294 ppi).");
+    lv_obj_t* p = paneCreate(4, "Display", "5\" screen, 1280 \xC3\x97 720 (294 ppi).");
     lv_obj_t* rb = row(p, "Base color", "");
     d.base_note = g_last_note;
     lv_obj_t* bs = swatchRow(rb);
@@ -1152,29 +1163,32 @@ void buildDisplay()
     d.hue_sl = customSlider(sliders, "HUE", 0, 359, customHue(e.accent_hue));
     d.sat_sl = customSlider(sliders, "SATURATION", kAccentSatMin, 100, customSat(e.accent_sat));
     colorsShow();
-    lv_obj_t* r = row(p, "Brightness", "Jasność ekranu (podgląd na żywo)");
+    lv_obj_t* r = row(p, "Brightness", "Screen brightness (live preview)");
     hsliderCreate(r, 128, 10, 100, e.brightness, onBright, nullptr);
-    r = row(p, "Animations", "Przejścia i mikroanimacje");
+    r = row(p, "Interface size", "Larger dialogs, menus and touch areas (all of it after a restart)");
+    static const char* const kSizes[] = {"Standard", "Large", "Extra large"};
+    selectCreate(r, kCtrlW, 37, kSizes, 3, e.ui_size < 3 ? e.ui_size : 0, onUiSize, nullptr);
+    r = row(p, "Animations", "Transitions and micro animations");
     flagToggle(r, e.animations);
-    r = row(p, "Level meters", "Animowane wskaźniki poziomu");
+    r = row(p, "Level meters", "Animated level meters");
     flagToggle(r, e.meters);
-    r = row(p, "Low power mode", "30 fps, bez animacji i efektu ripple");
+    r = row(p, "Low power mode", "30 fps, no animations or ripple");
     flagToggle(r, e.low_power);
 }
 
 void buildTouch()
 {
     Settings& e = E();
-    lv_obj_t* p = paneCreate(5, "Touch", "Multi-touch (do 5 palców) i reakcja kontrolek.");
-    lv_obj_t* r = row(p, "Touch feedback", "Animacja wciśnięcia i ripple");
+    lv_obj_t* p = paneCreate(5, "Touch", "Multi-touch (up to 5 fingers) and how the controls respond.");
+    lv_obj_t* r = row(p, "Touch feedback", "Press animation and ripple");
     flagToggle(r, e.touch_feedback);
-    r = row(p, "Haptic indicator", "Wizualne potwierdzenie dotyku padu");
+    r = row(p, "Haptic indicator", "Visual confirmation of a pad touch");
     flagToggle(r, e.haptic_indicator);
-    r = row(p, "Knob sensitivity", "Czułość przeciągania pokręteł");
+    r = row(p, "Knob sensitivity", "How fast knobs follow a drag");
     hsliderCreate(r, 128, 1, 100, e.knob_sensitivity, onSens, nullptr);
-    r = row(p, "Double tap reset", "Podwójne dotknięcie przywraca wartość domyślną");
+    r = row(p, "Double tap reset", "A double tap restores the default value");
     flagToggle(r, e.double_tap_reset);
-    r = row(p, "Pad velocity", "Siła z miejsca dotyku (góra = głośniej) lub stała");
+    r = row(p, "Pad velocity", "Velocity from where you touch (top = louder) or fixed");
     static const char* const kVel[] = {"Position", "Fixed"};
     selectCreate(r, kCtrlW, 37, kVel, 2, e.pad_velocity == PadVelocity::Fixed ? 1 : 0, onVelMode, nullptr);
     r = row(p, "Fixed velocity", "");
@@ -1185,17 +1199,17 @@ void buildTouch()
 
 void buildStorage()
 {
-    lv_obj_t* p = paneCreate(6, "Storage", "Karta microSD (FAT32 / exFAT): biblioteka sampli i projekty.");
-    lv_obj_t* r = row(p, "Library path", "Ścieżka biblioteki");
+    lv_obj_t* p = paneCreate(6, "Storage", "microSD card (FAT32 / exFAT): the sample library and projects.");
+    lv_obj_t* r = row(p, "Library path", "Where the library is");
     valueText(r, "/sdcard/ORBIT/SAMPLES/", f_mono12);
-    r = row(p, "Project path", "Ścieżka projektów");
+    r = row(p, "Project path", "Where the projects are");
     valueText(r, "/sdcard/ORBIT/PROJECTS/", f_mono12);
-    r = row(p, "SD card", "Pojemność i wolne miejsce");
+    r = row(p, "SD card", "Size and free space");
     d.sd_status = valueText(r, app().sdStatus(), f_r14);
-    r = row(p, "Scan library", "Odświeżenie listy plików");
+    r = row(p, "Scan library", "Refreshes the file list");
     lv_obj_t* b = actionBtn(r, "SCAN SD", false, 0, 34);
     lv_obj_add_event_cb(b, onScan, LV_EVENT_CLICKED, nullptr);
-    r = row(p, "Export project", "Zapis bieżącego projektu do PROJECTS/<nazwa>.json");
+    r = row(p, "Export project", "Writes the current project to PROJECTS/<name>.json");
     b = actionBtn(r, "EXPORT JSON", false, 0, 34);
     lv_obj_add_event_cb(b, onExport, LV_EVENT_CLICKED, nullptr);
 }
@@ -1232,9 +1246,9 @@ void buildAbout()
     lv_obj_set_size(gap, 1, 12);
     lv_obj_t* cr = copyBox(p);
     copyLine(cr,
-             "Czcionki: Lato, Montserrat, Share Tech Mono (SIL OFL 1.1) i DejaVu Sans. "
-             "Zestawy 808 STYLE i 909 STYLE zsyntetyzowaliśmy sami \xE2\x80\x94 bez sampli Roland "
-             "(TR-808 i TR-909 to znaki towarowe Roland).",
+             "Fonts: Lato, Montserrat, Share Tech Mono (SIL OFL 1.1) and DejaVu Sans. "
+             "The 808 STYLE and 909 STYLE kits are our own synthesis \xE2\x80\x94 no Roland samples "
+             "(TR-808 and TR-909 are trademarks of Roland).",
              col::muted);
     gap = plain(p);
     lv_obj_set_size(gap, 1, 16);
@@ -1272,9 +1286,17 @@ void fitShell()
 {
     lv_obj_t* p = d.panes[d.tab];
     if (!p) return;
-    lv_obj_set_height(p, kShellMax);
-    lv_obj_set_height(d.shell, kShellMax);
-    lv_obj_set_height(d.nav, kShellMax);
+    // 0.4.6: the dialog is drawn larger (modalScale); it stays within the screen height and the section scrolls
+    const float k = modalScaleOf();
+    int h = kShellMax;
+    if (k > 1.0f) {
+        h = (int)lroundf((float)kShellMax * k);
+        const int room = modalMaxHeight() - (int)lroundf((float)(kHeadH + kFootH) * k) - 2;
+        if (room > 0 && h > room) h = room;
+    }
+    lv_obj_set_height(p, h);
+    lv_obj_set_height(d.shell, h);
+    lv_obj_set_height(d.nav, h);
     lv_obj_scroll_to_y(p, 0, LV_ANIM_OFF);
 }
 
@@ -1282,7 +1304,13 @@ void showTab(int i)
 {
     if (i < 0 || i >= kTabs) i = 0;
     d.tab = i;
-    if (!d.panes[i]) buildPane(i);
+    if (!d.panes[i]) {
+        const int before = (int)lv_obj_get_child_count(d.shell);
+        d.building = true;
+        buildPane(i);
+        d.building = false;
+        modalScaleKids(d.shell, before);   // a section built later: at the dialog's scale (no-op at 1)
+    }
     for (int j = 0; j < kTabs; ++j) {
         if (d.panes[j]) {
             if (j == i) lv_obj_remove_flag(d.panes[j], LV_OBJ_FLAG_HIDDEN);
@@ -1292,8 +1320,8 @@ void showTab(int i)
     }
     app().ui().settings_tab = i;   // remembered for the next open (UI-only state)
     if (d.foot_note && lv_obj_check_type(d.foot_note, &lv_label_class))
-        setText(d.foot_note, i == kTabBluetooth ? "Bluetooth działa od razu \xE2\x80\x94 pozostałe zmiany po APPLY"
-                                                : "Zmiany obowiązują po APPLY");
+        setText(d.foot_note, i == kTabBluetooth ? "Bluetooth acts at once \xE2\x80\x94 the rest after APPLY"
+                                                : "Changes take effect after APPLY");
     fitShell();
 }
 
@@ -1344,19 +1372,32 @@ bool nameTaken(const char* clean)
 void onThemeLater(lv_event_t*) { modalClose(); }
 void onThemeRestart(lv_event_t*) { app().restartApp(); }   // returns only when it did not restart (toast says why)
 
+bool s_restart_colors = false, s_restart_size = false;   // what the restart prompt is about
+int s_size_shown = -1;   // Interface size the screens were built with (touch areas), -1 = not known yet
+
 void themePrompt(void*)
 {
-    lv_obj_t* body = modalOpen("COLORS", 600, 250, 320);
+    lv_obj_t* body = modalOpen(s_restart_colors ? "COLORS" : "INTERFACE SIZE", 600, 250, 320);
     if (!body) return;
     const Look lk = lookOf(app().settings());
     char acc[24];
     if (lk.theme == kThemeCustom) snprintf(acc, sizeof acc, "CUSTOM %d\xC2\xB0", lk.hue);
     else snprintf(acc, sizeof acc, "%s", kThemes[lk.theme].name);
-    char t[240];
-    snprintf(t, sizeof t,
-             "Kolory (tło %s, akcent %s) pojawią się po ponownym uruchomieniu ORBIT (ok. 2 s). Projekt zostanie "
-             "zapisany i otwarty ponownie.",
-             baseName(lk.base), acc);
+    char t[300];
+    if (s_restart_colors && s_restart_size)
+        snprintf(t, sizeof t,
+                 "The colors (base %s, accent %s) and the new interface size appear after ORBIT restarts "
+                 "(about 2 s). The project is saved and opened again.",
+                 baseName(lk.base), acc);
+    else if (s_restart_colors)
+        snprintf(t, sizeof t,
+                 "The colors (base %s, accent %s) appear after ORBIT restarts (about 2 s). The project is saved "
+                 "and opened again.",
+                 baseName(lk.base), acc);
+    else
+        snprintf(t, sizeof t,
+                 "Dialogs and menus use the new interface size already; the larger touch areas of every screen "
+                 "come after ORBIT restarts (about 2 s). The project is saved and opened again.");
     lv_obj_t* l = label(body, t, f_r14, col::ink);
     lv_obj_set_width(l, LV_PCT(100));
     lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_WRAP);
@@ -1365,6 +1406,7 @@ void themePrompt(void*)
     lv_obj_t* foot = modalFooter("");
     lv_obj_add_event_cb(actionBtn(foot, "LATER", false, 0, 34), onThemeLater, LV_EVENT_CLICKED, nullptr);
     lv_obj_add_event_cb(actionBtn(foot, "RESTART NOW", true, 0, 34), onThemeRestart, LV_EVENT_CLICKED, nullptr);
+    modalScale(modalScaleFor(1.0f));
 }
 
 void onApply(lv_event_t*)
@@ -1381,7 +1423,7 @@ void onApply(lv_event_t*)
             d.rename_armed = true;
             d.rename_ms = lv_tick_get();
             snprintf(d.rename_name, sizeof d.rename_name, "%s", clean);
-            app().toast("Projekt %s już istnieje \xE2\x80\x94 APPLY ponownie: SAVE go nadpisze", clean);
+            app().toast("Project %s already exists \xE2\x80\x94 APPLY again: SAVE will overwrite it", clean);
             return;
         }
     }
@@ -1392,13 +1434,17 @@ void onApply(lv_event_t*)
     // After applySettings(): it copies a changed default into the project; the switch shown here wins.
     if (d.limiter >= 0 && d.limiter != d.limiter0 && (app().project().limiter_on != 0) != (d.limiter != 0))
         app().setLimiter(d.limiter != 0);
-    if (taken) app().toast("Zapisano ustawienia \xE2\x80\x94 SAVE nadpisze projekt %s", clean);
+    if (taken) app().toast("Settings saved \xE2\x80\x94 SAVE will overwrite project %s", clean);
     d.applied = true;
     // Asked only when this dialog chose other colours than the ones on screen (not again after LATER).
     const Look applied = lookOf(app().settings());
     const bool theme_new = !(applied == d.look0) && !(applied == lookOnScreen());
+    const int size = app().settings().ui_size;
+    const bool size_new = size != d.ui_size0 && size != s_size_shown;
     modalClose();
-    if (theme_new) lv_async_call(themePrompt, nullptr);   // after this event: the settings modal is gone
+    s_restart_colors = theme_new;
+    s_restart_size = size_new;
+    if (theme_new || size_new) lv_async_call(themePrompt, nullptr);   // after this event: the settings modal is gone
 }
 
 void onTimer(lv_timer_t*) { refresh(); }
@@ -1428,6 +1474,8 @@ void open()
     d.open = true;
     app().settingsDiscard();   // start from the active settings
     d.look0 = lookOf(app().settings());
+    d.ui_size0 = app().settings().ui_size;
+    if (s_size_shown < 0) s_size_shown = d.ui_size0;   // the first open: what the screens were built with
     snprintf(d.name, sizeof d.name, "%s", app().project().name);
     snprintf(d.name0, sizeof d.name0, "%s", d.name);
     d.quant = d.quant0 = (int)app().project().quant < 4 ? (int)app().project().quant : 0;
@@ -1468,12 +1516,16 @@ void open()
         d.links[i] = l;
     }
 
-    lv_obj_t* foot = modalFooter("Zmiany obowiązują po APPLY");
+    lv_obj_t* foot = modalFooter("Changes take effect after APPLY");
     d.foot_note = foot ? lv_obj_get_child(foot, 0) : nullptr;   // the note label (Bluetooth acts at once)
     lv_obj_t* apply = actionBtn(foot, "APPLY", true, 0, 34);
     lv_obj_add_event_cb(apply, onApply, LV_EVENT_CLICKED, nullptr);
 
     showTab(app().ui().settings_tab);
+    // 0.4.6: the whole dialog larger (text, rows, switches, lists and their touch areas), x1.25 and more with
+    // Display > Interface size; sections opened later follow in showTab().
+    modalScale(modalScaleFor(kSettingsScale));
+    fitShell();
     d.timer = lv_timer_create(onTimer, 250, nullptr);
 }
 

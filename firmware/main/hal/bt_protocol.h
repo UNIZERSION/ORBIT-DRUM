@@ -383,7 +383,7 @@ public:
         if (ph_ == Phase::Stopping) {
             if (m.kind == Kind::Standby) {
                 ph_ = Phase::Off;
-                note("Bluetooth wyłączony");
+                note("Bluetooth off");
             }
         } else {
             s_.module = 1;
@@ -406,7 +406,7 @@ public:
                 s_.faults = s_.recoveries = s_.resyncs = 0;
                 s_.version[0] = 0;
                 attempts_ = 0;
-                note("Budzenie modułu Bluetooth (Pico)…");
+                note("Waking the Bluetooth module (Pico)…");
                 wake(now);
             }
             break;
@@ -435,7 +435,7 @@ public:
                 } else {
                     ph_ = Phase::Absent;
                     retry_at_ = now + kAbsentRetryMs;
-                    note("Nie wykryto modułu Bluetooth (Pico) — sprawdź podłączenie");
+                    note("No Bluetooth module (Pico) found — check the connection");
                 }
             }
             break;
@@ -443,7 +443,7 @@ public:
             if (!in.enabled) {   // not answering (or asleep): nothing to put to sleep, no UART traffic
                 ph_ = Phase::Off;
                 qn_ = 0;
-                note("Bluetooth wyłączony");
+                note("Bluetooth off");
             } else if (due(now, retry_at_)) {
                 wake(now);
             }
@@ -455,7 +455,7 @@ public:
         case Phase::Stopping:
             if (due(now, sleep_at_ + kStandbyMs)) {
                 ph_ = Phase::Off;
-                note("Bluetooth wyłączony (Pico nie potwierdził uśpienia)");
+                note("Bluetooth off (the Pico did not confirm sleep)");
             }
             break;
         }
@@ -590,7 +590,7 @@ private:
         sleep_at_ = now;
         qn_ = 0;
         dropLink();
-        note("Usypianie modułu Pico…");
+        note("Putting the Pico to sleep…");
     }
     void restarting(uint32_t now)
     {
@@ -628,7 +628,7 @@ private:
     void awake(uint32_t now, bool route, bool rate_bad)
     {
         if (due(now, last_rx_ + kSilenceMs)) {
-            note("Pico nie odpowiada — ponowne budzenie");
+            note("Pico not answering — waking it again");
             attempts_ = 0;
             wake(now);
             return;
@@ -666,7 +666,7 @@ private:
                 resent_ = true;
                 st_at_ = now;
             } else {
-                note("Pico nie potwierdza strumienia — ponowna próba za 5 s");
+                note("Pico does not confirm the stream — retry in 5 s");
                 st_ = kRetry;
                 st_at_ = now;
                 resync_ = false;
@@ -678,7 +678,7 @@ private:
             startStream(now, true);
         }
         if (rate_bad && s_.connected) {
-            if (!rate_note_) note("Bluetooth wymaga 44,1 kHz");
+            if (!rate_note_) note("Bluetooth needs 44.1 kHz");
             rate_note_ = true;
         } else {
             rate_note_ = false;
@@ -703,7 +703,7 @@ private:
             next_use_ = now;
             next_status_ = now + 300;
             if (want_volume_ >= 0) setVolume(want_volume_);
-            note("Moduł Bluetooth (Pico) gotowy, wersja ", s_.version[0] ? s_.version : "?");
+            note("Bluetooth module (Pico) ready, version ", s_.version[0] ? s_.version : "?");
             break;
         case Kind::State:
         case Kind::Status: {
@@ -712,10 +712,10 @@ private:
                 s_.connected = c;
                 if (c) {
                     list_want_ = true;
-                    note("Połączono z urządzeniem Bluetooth");
+                    note("Connected to a Bluetooth device");
                 } else {
                     clearAirpods();
-                    note("Urządzenie Bluetooth rozłączone");
+                    note("Bluetooth device disconnected");
                 }
             }
             if (m.audio >= 0) pico_audio_ = m.audio == 2;
@@ -724,7 +724,7 @@ private:
             if (m.scan >= 0) s_.scanning = (uint8_t)m.scan;
             if (m.cap_airpods >= 0) cap_airpods_ = m.cap_airpods == 1;
             if (m.version[0]) memcpy(s_.version, m.version, sizeof s_.version);
-            if (m.i2s_error > 0 && !i2s_note_) note("Błąd wejścia I2S w Pico — sprawdź przewody G5, G18, G19");
+            if (m.i2s_error > 0 && !i2s_note_) note("Pico I2S input error — check the wires G5, G18, G19");
             if (m.i2s_error >= 0) i2s_note_ = m.i2s_error > 0;
             if (m.underruns >= 0) s_.pico_underruns = (uint32_t)m.underruns;
             if (m.dropped >= 0) s_.pico_overflows = (uint32_t)m.dropped;
@@ -762,7 +762,7 @@ private:
         case Kind::Selected:
             if (m.flag) {
                 restarting(now);
-                note("Wybrano: ", m.text);
+                note("Chosen: ", m.text);
             } else {
                 list_want_ = true;   // "SELECTED Already connected"
             }
@@ -771,12 +771,12 @@ private:
             restarting(now);
             scan_restart_ = m.flag;
             s_.scanning = m.flag;
-            note(m.flag ? "Wyszukiwanie urządzeń Bluetooth (20 s)…" : "Ponowne łączenie z zapisanym urządzeniem…");
+            note(m.flag ? "Searching for Bluetooth devices (20 s)…" : "Reconnecting to the saved device…");
             break;
         case Kind::ScanDone:
             s_.scanning = 0;
             list_want_ = true;
-            note("Wyszukiwanie zakończone — wybierz urządzenie");
+            note("Search finished — pick a device");
             break;
         case Kind::Volume: s_.volume = (uint8_t)m.volume; break;
         case Kind::StreamAck:
@@ -789,25 +789,25 @@ private:
             ++s_.faults;
             if (m.token != token_ || (st_ != kSent && st_ != kAcked)) break;   // an earlier stream
             if (m.fault == Fault::InputStalled) {
-                note("Pico nie dostaje dźwięku — ponowny start strumienia");
+                note("Pico gets no audio — restarting the stream");
                 startStream(now);
             } else if (m.fault == Fault::TransportFailed) {
-                note("Strumień Bluetooth przerwany — ponowna próba za 5 s");
+                note("Bluetooth stream lost — retry in 5 s");
                 st_ = kRetry;
                 st_at_ = now;
             }
             break;
         case Kind::Recovery:
             ++s_.recoveries;
-            note("Pico odnawia strumień Bluetooth");
+            note("Pico is renewing the Bluetooth stream");
             break;
-        case Kind::TestStart: note("Test: lewy kanał, cisza, prawy kanał"); break;
+        case Kind::TestStart: note("Test: left channel, silence, right channel"); break;
         case Kind::Standby:   // asleep on its own (or someone else's SLEEP): wake it again shortly
             dropLink();
             ph_ = Phase::Absent;
             retry_at_ = now + 600;
             attempts_ = 0;
-            note("Pico zasnął — ponowne budzenie");
+            note("Pico fell asleep — waking it again");
             break;
         case Kind::Remote:
             if (rn_ == kRemoteLen) {   // full: the oldest goes

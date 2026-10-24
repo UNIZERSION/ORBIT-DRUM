@@ -2,13 +2,13 @@
 // prototype's visual language (overline + title head, action buttons, dark editor knobs).
 //   head      "ACID BASS / SCENE A", "303 STYLE · 16 STEPS"; MUTE, RANDOM, CLEAR (UNDO for a few seconds after
 //             RANDOM / CLEAR), PLAY, and the corner-marks button: the whole screen for the bass (0.3.2) and back
-//   line      the 16 steps of the shown bar (the same bar as SEQUENCE): note bars on a three-octave pitch scale
-//             (C1..C4), glide lines between slid notes, note names, accent / slide marks, the edit cursor and the
+//   line      the 16 steps of the shown bar (the same bar as SEQUENCE): note bars on a five-octave pitch scale
+//             (C0..C5, 0.4.6), glide lines between slid notes, note names, accent / slide marks, the edit cursor and the
 //             playhead; a note that sounds lights up like the drum steps. Tap = select the step; press and drag
 //             = draw notes (absolute pitch, also across steps).
 //   step row  GATE, ACCENT, SLIDE, OCT -, OCT + of the selected step; BAR < n/m > (longer scenes); WAVE SAW / SQR
 //   keyboard  one octave + C: sets the selected step's note in its octave (and its gate), plays it, moves on
-//   knobs     TUNE CUTOFF RESO ENV MOD DECAY ACCENT DRIVE FX SEND LEVEL (GP_BASS_*)
+//   knobs     CUTOFF RESO ENV MOD DECAY ACCENT DRIVE FX SEND LEVEL (GP_BASS_*; 0.4.6: no TUNE, the range grew)
 // Layout (screen px): head 84..121, line 134..300, step row 306..340, keyboard 348..424, knobs 432..
 // KEYS (0.4.2, the head's toggle): the line, the step row and the step keyboard make room for a row (OCT - / +
 // with the range, ACCENT and SLIDE latches, SAW / SQR) and a two-octave keyboard (176..424) that only plays the
@@ -34,18 +34,18 @@ namespace {
 
 constexpr int kCols = kStepsPerPage;
 constexpr int kLineX = 329, kLineY = 134, kLineW = 710, kLineH = 166;
-constexpr int kNumY = 134, kPitchY0 = 152, kPitchY1 = 262;     // pitch area (C1 at the bottom, C4 at the top)
+constexpr int kNumY = 134, kPitchY0 = 152, kPitchY1 = 262;     // pitch area (C0 at the bottom, C5 at the top)
 constexpr int kNameY = 266, kMarkY = 284;
 constexpr int kKeyX = 329, kKeyY = 348, kKeyW = 710, kKeyH = 76;
-constexpr int kKnobD = 46, kKnobY = 432, kKnobSlot = 79;
+constexpr int kKnobD = 46, kKnobY = 432, kKnobs = 8, kKnobSlot = 88, kKnobX = 329 + (710 - kKnobs * kKnobSlot) / 2;
 constexpr uint32_t kUndoMs = 4000;
 constexpr uint32_t kSparkMs = 360;
-constexpr int kNotes = kBassNoteMax - kBassNoteMin;   // 36 semitones span
+constexpr int kNotes = kBassNoteMax - kBassNoteMin;   // 60 semitones span
 // KEYS mode
 constexpr int kLiveRowY = 134;
 constexpr int kLiveX = 329, kLiveY = 176, kLiveW = 710, kLiveH = 248;
 constexpr int kLiveWhites = 15;                       // C .. C over two octaves
-constexpr int kLiveBaseLo = 24, kLiveBaseHi = 60;     // the lowest key: C1 .. C4
+constexpr int kLiveBaseLo = 12, kLiveBaseHi = 72;     // the lowest key: C0 .. C5 (0.4.6: an octave more each way)
 constexpr int kLiveWhiteSemi[kLiveWhites] = {0, 2, 4, 5, 7, 9, 11, 12, 14, 16, 17, 19, 21, 23, 24};
 constexpr int kLiveBlackSemi[10] = {1, 3, 6, 8, 10, 13, 15, 18, 20, 22};
 constexpr int kLiveBlackAfter[10] = {0, 1, 3, 4, 5, 7, 8, 10, 11, 12};   // right of this white key
@@ -87,7 +87,7 @@ struct View {
     lv_obj_t* bar = nullptr;
     lv_obj_t* saw = nullptr;
     lv_obj_t* sqr = nullptr;
-    lv_obj_t* knob[9] = {};
+    lv_obj_t* knob[kKnobs] = {};
     lv_obj_t* cur = nullptr;      // parent of the next button()
     lv_obj_t* edit = nullptr;     // line, step row, step keyboard (hidden in KEYS mode)
     lv_obj_t* live = nullptr;     // KEYS row and keyboard
@@ -242,8 +242,8 @@ void lineDraw(lv_event_t* e)
     const int page = curPage(), len = sceneLen();
     const int sel_col = v.sel / kStepsPerPage == page ? v.sel % kStepsPerPage : -1;
     char buf[8];
-    // octave guides (C2, C3) across the line
-    for (int n = 0; n <= 12; n += 12) {
+    // octave guides (C1 .. C4) across the line
+    for (int n = kBassNoteMin + 12; n < kBassNoteMax; n += 12) {
         lv_area_t g = {t.X(kLineX), t.Y(noteY(n)), t.X(kLineX + kLineW) - 1, t.Y(noteY(n)) + t.F(1) - 1};
         fillRect(layer, g, col::step_border, 0, 110);
     }
@@ -1097,13 +1097,13 @@ lv_obj_t* create(lv_obj_t* work)
     v.cur = nullptr;
 
     // ---- knobs (both modes)
-    static const GlobalParam kP[9] = {GP_BASS_TUNE,   GP_BASS_CUTOFF, GP_BASS_RESO, GP_BASS_ENVMOD, GP_BASS_DECAY,
-                                      GP_BASS_ACCENT, GP_BASS_DRIVE,  GP_BASS_SEND, GP_BASS_LEVEL};
-    for (int i = 0; i < 9; ++i) {
+    static const GlobalParam kP[kKnobs] = {GP_BASS_CUTOFF, GP_BASS_RESO,  GP_BASS_ENVMOD, GP_BASS_DECAY,
+                                           GP_BASS_ACCENT, GP_BASS_DRIVE, GP_BASS_SEND,   GP_BASS_LEVEL};
+    for (int i = 0; i < kKnobs; ++i) {
         lv_obj_t* k = knobCreate(v.root, KnobLook::Dark, kKnobD, ParamRef::global(kP[i]), nullptr);
         lv_obj_update_layout(k);
         const int w = lv_obj_get_width(k);
-        place(k, 329 + i * kKnobSlot + (kKnobSlot - w) / 2, kKnobY);
+        place(k, kKnobX + i * kKnobSlot + (kKnobSlot - w) / 2, kKnobY);
         v.knob[i] = k;
     }
 
@@ -1183,5 +1183,20 @@ void onHide()
 void touchInput(const hal::TouchPoint* pts, int n) { keysTouch(pts, n); }
 
 bool keysOn() { return s_live.on; }
+
+// The physical keyboard (ui/keys.cpp) plays the bass like KEYS: the same range, accent and slide.
+int liveBase() { return s_live.base; }
+bool liveAccent() { return s_live.accent; }
+bool liveSlide() { return s_live.slide; }
+void setLiveBase(int midi)
+{
+    const int base = clampi(midi, kLiveBaseLo, kLiveBaseHi);
+    if (base == s_live.base) return;
+    s_live.base = base;
+    kbLatches();
+    if (!v.root) return;
+    updateTexts();
+    if (v.lkb) lv_obj_invalidate(v.lkb);
+}
 
 }  // namespace orbit::ui::view_bass

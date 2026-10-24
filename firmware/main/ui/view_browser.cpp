@@ -39,6 +39,10 @@ constexpr int kListX = 13, kListW = 460, kPanelH = 458;
 constexpr int kPrevX = 486, kPrevW = 245;
 constexpr int kInnerW = kListW - 2;           // 458
 constexpr int kSearchTop = 55;                // list starts below the search strip
+// 0.4.6: the category list right of the search (switches the category here, also in the maximized view)
+constexpr int kCatW = 136, kSearchW = kInnerW - 20 - kCatW - 8;
+const Category kCats[8] = {Category::Kits,  Category::All,    Category::Drums, Category::Bass,
+                           Category::Synth, Category::Vocals, Category::Fx,    Category::User};
 constexpr int kListH = kPanelH - 2 - kSearchTop - 3;
 constexpr int kRowH = 43;
 constexpr int kRows = kListH / kRowH + 3;     // recycled row objects (12)
@@ -112,6 +116,7 @@ struct State {
     lv_obj_t* root = nullptr;
     lv_obj_t* samples = nullptr;
     lv_obj_t* search = nullptr;
+    lv_obj_t* cat = nullptr;        // category select (0.4.6)
     lv_obj_t* clear = nullptr;
     lv_obj_t* list = nullptr;
     lv_obj_t* spacer = nullptr;
@@ -563,7 +568,7 @@ void updatePreview(bool force)
     char info[96] = "";
     switch (kind) {
     case Sel::None:
-        setText(g.name, g.sd ? "Wybierz plik z listy" : "Wybierz zestaw");
+        setText(g.name, g.sd ? "Pick a file from the list" : "Pick a kit");
         lv_obj_set_style_text_color(g.name, c(col::muted), 0);
         break;
     case Sel::File: {
@@ -633,8 +638,11 @@ void modelUpdate()
         g.kit_counts_used = 0;
         g.kit_counts_next = 0;
         textFieldSet(g.search, u.search);
+        for (int i = 0; i < 8; ++i)
+            if (kCats[i] == u.category) selectSet(g.cat, i);
     }
     setHidden(g.search, !g.sd);   // search filters the SD library only
+    setHidden(g.cat, !g.sd);
     setHidden(g.clear, !g.sd || u.search[0] == 0);
     if ((int)g.sd != g.list_sd) {   // no card: the list starts at the top instead of under the search strip
         g.list_sd = g.sd ? 1 : 0;
@@ -648,9 +656,9 @@ void modelUpdate()
     // Empty list message.
     if (g.count == 0) {
         char msg[96];
-        if (u.search[0]) snprintf(msg, sizeof msg, "Brak wyników dla \xE2\x80\x9E%s\xE2\x80\x9D", u.search);
-        else if (app().loadingCount() > 0 && app().library().count() == 0) snprintf(msg, sizeof msg, "Skanowanie karty SD\xE2\x80\xA6");
-        else snprintf(msg, sizeof msg, "Brak plików WAV w kategorii %s", categoryName(u.category));
+        if (u.search[0]) snprintf(msg, sizeof msg, "No results for \xE2\x80\x9C%s\xE2\x80\x9D", u.search);
+        else if (app().loadingCount() > 0 && app().library().count() == 0) snprintf(msg, sizeof msg, "Scanning the SD card\xE2\x80\xA6");
+        else snprintf(msg, sizeof msg, "No WAV files in %s", categoryName(u.category));
         setText(g.empty, msg);
     }
     setHidden(g.empty, g.count != 0);
@@ -669,7 +677,7 @@ void onRowClicked(lv_event_t* e)
     const bool again = id == selectedId();
     if (isBuiltin(id)) {
         if (again) {
-            if (!optPreviewBuiltin(app(), builtinOf(id))) app().toast("Odsłuch zestawu: użyj LOAD KIT");
+            if (!optPreviewBuiltin(app(), builtinOf(id))) app().toast("Kit preview: use LOAD KIT");
             return;
         }
         g.sel_builtin = builtinOf(id);
@@ -679,7 +687,7 @@ void onRowClicked(lv_event_t* e)
     }
     if (again) {   // second tap on the selected row plays it
         if (app().library().at(id).is_kit) {
-            if (!optPreviewKit(app(), id)) app().toast("Odsłuch zestawu: użyj LOAD KIT");
+            if (!optPreviewKit(app(), id)) app().toast("Kit preview: use LOAD KIT");
         } else {
             app().previewEntry(id);
         }
@@ -699,6 +707,13 @@ void onSearchDone(const char* text, void*)
     refresh();
 }
 
+void onCatPicked(int i, void*)
+{
+    if (i < 0 || i >= 8) return;
+    app().setCategory(kCats[i]);
+    refresh();
+}
+
 void onClear(lv_event_t*)
 {
     textFieldSet(g.search, "");
@@ -712,10 +727,10 @@ void onPreview(lv_event_t*)
     switch (kindOf(id)) {
     case Sel::File: app().previewEntry(id); break;
     case Sel::Kit:
-        if (!optPreviewKit(app(), id)) app().toast("Odsłuch zestawu: użyj LOAD KIT");
+        if (!optPreviewKit(app(), id)) app().toast("Kit preview: use LOAD KIT");
         break;
     case Sel::Builtin:
-        if (!optPreviewBuiltin(app(), builtinOf(id))) app().toast("Odsłuch zestawu: użyj LOAD KIT");
+        if (!optPreviewBuiltin(app(), builtinOf(id))) app().toast("Kit preview: use LOAD KIT");
         break;
     case Sel::None: break;
     }
@@ -754,11 +769,11 @@ void onLoadKit(int id)
         padLabel(first, a, sizeof a);
         padLabel(last, b, sizeof b);
         const int m10 = busy % 10, m100 = busy % 100;
-        const char* word = busy == 1 ? "pad" : (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) ? "pady" : "padów";
+        const char* word = busy == 1 ? "pad" : (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) ? "pads" : "pads";
         if (busy == 1)
-            app().toast("LOAD KIT zastąpi pad %s \xE2\x80\x94 dotknij ponownie", a);
+            app().toast("LOAD KIT replaces pad %s \xE2\x80\x94 tap again", a);
         else
-            app().toast("LOAD KIT zastąpi %d %s (%s\xE2\x80\x93%s) \xE2\x80\x94 dotknij ponownie", busy, word, a, b);
+            app().toast("LOAD KIT replaces %d %s (%s\xE2\x80\x93%s) \xE2\x80\x94 tap again", busy, word, a, b);
         return;
     }
     g.kit_armed_id = kNone;
@@ -774,7 +789,7 @@ void onLoad(lv_event_t*)
     const int id = selectedId();
     switch (kindOf(id)) {
     case Sel::File:
-        if (!app().loadFileToPad(id, app().ui().pad, app().ui().layer)) app().toast("Nie można wczytać pliku");
+        if (!app().loadFileToPad(id, app().ui().pad, app().ui().layer)) app().toast("Cannot load the file");
         break;
     case Sel::Kit:
     case Sel::Builtin: onLoadKit(id); break;
@@ -806,15 +821,15 @@ void onOpenSampler(lv_event_t*)
         char lbl[8];
         padLabel(pad, lbl, sizeof lbl);
         if (layer > 0)
-            app().toast("%s \xC2\xB7 L%d gra %s \xE2\x80\x94 dotknij ponownie, aby zastąpić", lbl, layer + 1,
+            app().toast("%s \xC2\xB7 L%d plays %s \xE2\x80\x94 tap again to replace it", lbl, layer + 1,
                         cur->name[0] ? cur->name : "sampel");
         else
-            app().toast("%s gra %s \xE2\x80\x94 dotknij ponownie, aby zastąpić", lbl, cur->name[0] ? cur->name : "sampel");
+            app().toast("%s plays %s \xE2\x80\x94 tap again to replace it", lbl, cur->name[0] ? cur->name : "sampel");
         return;
     }
     g.edit_armed_id = kNone;
     if (app().loadFileToPad(id, pad, layer)) app().setView(View::Sample);
-    else app().toast("Nie można wczytać pliku");
+    else app().toast("Cannot load the file");
 }
 
 void onDetails(lv_event_t*) { dlg_sample::open(); }
@@ -843,7 +858,7 @@ void buildList()
     g.samples = box(g.root, kListX, kPanelY, kListW, kPanelH, kListBg);
 
     // .l-input-search: 438x35 at 10,10, #e9ebec, border #bac0c3, radius 5, padding 0 12.
-    g.search = textFieldCreate(g.samples, kInnerW - 20, app().ui().search, (int)sizeof(app().ui().search) - 1,
+    g.search = textFieldCreate(g.samples, kSearchW, app().ui().search, (int)sizeof(app().ui().search) - 1,
                                onSearchDone, nullptr, "Search .wav samples...");
     lv_obj_set_pos(g.search, 10, 10);
     lv_obj_set_height(g.search, 35);
@@ -857,9 +872,20 @@ void buildList()
     lv_obj_set_ext_click_area(g.search, 8);
 
     g.clear = iconBtn(g.samples, Icon::Close, 16, 30);
-    lv_obj_set_pos(g.clear, 10 + kInnerW - 20 - 33, 12);
+    lv_obj_set_pos(g.clear, 10 + kSearchW - 33, 12);
     lv_obj_add_event_cb(g.clear, onClear, LV_EVENT_CLICKED, nullptr);
     lv_obj_add_flag(g.clear, LV_OBJ_FLAG_HIDDEN);
+
+    {
+        const char* names[8];
+        int cur = 1;
+        for (int i = 0; i < 8; ++i) {
+            names[i] = categoryName(kCats[i]);
+            if (kCats[i] == app().ui().category) cur = i;
+        }
+        g.cat = selectCreate(g.samples, kCatW, 35, names, 8, cur, onCatPicked, nullptr);
+        lv_obj_set_pos(g.cat, 10 + kSearchW + 8, 10);
+    }
 
     g.list = lv_obj_create(g.samples);
     lv_obj_remove_style_all(g.list);
@@ -887,7 +913,7 @@ void buildList()
     lv_obj_remove_flag(g.notice, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_t* ni = iconCreate(g.notice, Icon::Info, 18, col::accent_dark);
     lv_obj_align(ni, LV_ALIGN_LEFT_MID, 0, 0);
-    lv_obj_t* nl = label(g.notice, "Brak karty SD \xE2\x80\x94 dostępne są wbudowane zestawy", f_r13, col::accent_dark);
+    lv_obj_t* nl = label(g.notice, "No SD card \xE2\x80\x94 the built-in kits are here", f_r13, col::accent_dark);
     lv_obj_align(nl, LV_ALIGN_LEFT_MID, 29, 0);
     lv_obj_add_flag(g.notice, LV_OBJ_FLAG_HIDDEN);
 
@@ -1034,7 +1060,7 @@ void refresh()
     if (g.kit_waiting && app().loadingCount() == 0 && r.pads != g.kit_wait_pads) {
         g.kit_waiting = false;
         const char* l = app().undoPadsLabel();
-        if (app().canUndoPads() && l && (strcmp(l, "LOAD KIT") == 0 || strcmp(l, "ZESTAW") == 0)) {
+        if (app().canUndoPads() && l && (strcmp(l, "LOAD KIT") == 0 || strcmp(l, "KIT") == 0)) {
             g.kit_undo_id = g.kit_wait_id;
             g.kit_undo_until = lv_tick_get() + kUndoMs;
             if (!g.kit_undo_until) g.kit_undo_until = 1;
@@ -1066,7 +1092,7 @@ void focusSearch()
 {
     if (!g.search) return;
     if (!app().sdReady()) {
-        app().toast("Brak karty SD \xE2\x80\x94 dostępne są wbudowane zestawy");
+        app().toast("No SD card \xE2\x80\x94 the built-in kits are here");
         return;
     }
     lv_obj_send_event(g.search, LV_EVENT_CLICKED, nullptr);   // the text field opens the keyboard

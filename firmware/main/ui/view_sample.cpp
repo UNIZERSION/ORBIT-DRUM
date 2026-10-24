@@ -282,11 +282,11 @@ void toPadsCb(lv_event_t*)
         s_topads_armed_pad = src;
         s_topads_armed_ms = lv_tick_get();
         const int m10 = busy % 10, m100 = busy % 100;
-        const char* word = busy == 1 ? "pad" : (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) ? "pady" : "padów";
+        const char* word = busy == 1 ? "pad" : (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) ? "pads" : "pads";
         if (busy == 1)
-            a.toast("TO PADS nadpisze pad %c%d \xE2\x80\x94 dotknij ponownie", 'A' + first / 4, first % 4 + 1);
+            a.toast("TO PADS overwrites pad %c%d \xE2\x80\x94 tap again", 'A' + first / 4, first % 4 + 1);
         else
-            a.toast("TO PADS nadpisze %d %s (%c%d\xE2\x80\x93%c%d) \xE2\x80\x94 dotknij ponownie", busy, word,
+            a.toast("TO PADS overwrites %d %s (%c%d\xE2\x80\x93%c%d) \xE2\x80\x94 tap again", busy, word,
                     'A' + first / 4, first % 4 + 1, 'A' + last / 4, last % 4 + 1);
         return;
     }
@@ -321,7 +321,7 @@ void waveSnap(int which, void*)
     if (which == 0 && pos > p.p[PP_END] - 0.01f) pos = cur;
     if (which == 1 && pos < p.p[PP_START] + 0.01f) pos = cur;
     a.paramSet(ParamRef::pad(which == 0 ? PP_START : PP_END), pos);
-    a.toast("%s: przyci\xC4\x85gni\xC4\x99to do przej\xC5\x9B" "cia przez zero", which == 0 ? "START" : "END");
+    a.toast("%s: snapped to a zero crossing" "", which == 0 ? "START" : "END");
 }
 
 // Slice index under a 0..1 position (-1 outside the sliced range).

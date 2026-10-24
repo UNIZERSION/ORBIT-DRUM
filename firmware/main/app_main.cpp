@@ -115,7 +115,7 @@ extern "C" void app_main(void)
         orbit::ui::themeInit();
         logHeap("theme");
         if (ok) orbit::ui::build(disp);
-        else errorScreen(disp, "ORBIT DRUM: brak pamięci PSRAM \xE2\x80\x94 uruchom ponownie");
+        else errorScreen(disp, "ORBIT DRUM: no PSRAM memory \xE2\x80\x94 restart");
         hal::displayReveal();   // the next refresh is the finished UI: backlight on with it
         hal::lvUnlock();
     }
@@ -126,7 +126,7 @@ extern "C" void app_main(void)
     if (ok && !hal::audioStart(rate, st.buffer_frames, &App::render, &a.engine())) {
         ESP_LOGE(TAG, "audio start failed");
         if (hal::lvLock(0)) {
-            a.toast("Błąd uruchomienia audio");
+            a.toast("Audio start failed");
             hal::lvUnlock();
         }
     }
@@ -134,4 +134,5 @@ extern "C" void app_main(void)
     logHeap("audio");
     ESP_LOGI(TAG, "running: %s", hal::boardInfo());
     if (ok) orbit::ui::testcon::start();   // commands from the PC (tools/device_test.py)
+    hal::kbdStart();                        // the M5Stack Tab5 Keyboard, plugged in or not (0.4.6)
 }

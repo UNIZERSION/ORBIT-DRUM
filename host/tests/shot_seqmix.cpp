@@ -218,6 +218,9 @@ static void testSequence()
     app().setLane(StepLane::Trig);
     app().setSeqBank(0);
     app().setSeqPage(0);
+    // 0.4.6: the demo's scenes are 2 bars at 56 % swing; these checks start from one bar at 54 %
+    app().setSceneLength(16);
+    app().setSwing(54);
     lvhost_run(300);
     CHECK(findLabel(scr, "PATTERN EDITOR / SCENE A") != nullptr);
     CHECK(findLabel(scr, "DRUM MACHINE \xC2\xB7 16 STEPS") != nullptr);
@@ -291,7 +294,10 @@ static void testSequence()
             CHECK(kick == 16 && snare == 0);
         }
         // a drag that starts out vertical paints that column (step 6 of rows 2..5)
-        for (int r = 0; r < 8; ++r) app().setStepOn(r, 5, false);
+        for (int r = 0; r < 8; ++r) {   // columns 6 and 7 empty (the demo's hats play every 16th)
+            app().setStepOn(r, 5, false);
+            app().setStepOn(r, 6, false);
+        }
         lvhost_drag(cellX(5), cellY(2), cellX(5) + 6, cellY(5), 200);
         CHECK(app().step(2, 5).on && app().step(3, 5).on && app().step(4, 5).on && app().step(5, 5).on);
         CHECK(!app().step(1, 5).on && !app().step(6, 5).on && !app().step(2, 6).on);
@@ -418,13 +424,13 @@ static void testSequence()
         lvhost_run(100);
         CHECK(app().canUndoPattern());
         CHECK(findLabel(scr, "UNDO") != nullptr && findLabel(scr, "CLEAR") == nullptr);
-        CHECK(findLabel(lv_layer_top(), "dotknij UNDO", true) != nullptr);
+        CHECK(findLabel(lv_layer_top(), "tap UNDO", true) != nullptr);
         CHECK(tapText(scr, "UNDO"));   // restores, never clears
         CHECK(patternHash() == h);
         CHECK(!app().canUndoPattern());
         lvhost_run(100);
         CHECK(findLabel(scr, "CLEAR") != nullptr);
-        CHECK(findLabel(lv_layer_top(), "Cofnięto zmianę sceny A", true) != nullptr);
+        CHECK(findLabel(lv_layer_top(), "Undid the change of scene A", true) != nullptr);
         // the UNDO window ends after 8 s
         CHECK(tapText(scr, "RANDOM"));
         lvhost_run(7000);
@@ -444,7 +450,7 @@ static void testSequence()
             for (int i = 0; i < kMaxSteps; ++i) on += scene().track[t].step[i].on;
         CHECK(on == 0);
         lvhost_run(300);
-        CHECK(findLabel(lv_layer_top(), "Wyczyszczono scenę A", true) != nullptr);
+        CHECK(findLabel(lv_layer_top(), "Cleared scene A", true) != nullptr);
         CHECK(findLabel(scr, "UNDO") != nullptr);
         // UNDO after a scene switch restores the scene that was cleared, and says so
         app().selectScene(1);
@@ -455,8 +461,8 @@ static void testSequence()
         CHECK(tapText(scr, u ? "UNDO A" : "UNDO"));
         CHECK(app().project().scene == 1);
         lvhost_run(100);
-        CHECK(findLabel(lv_layer_top(), "Cofnięto zmianę sceny A", true) != nullptr);
-        CHECK(findLabel(lv_layer_top(), "Przywrócono scenę", true) == nullptr);
+        CHECK(findLabel(lv_layer_top(), "Undid the change of scene A", true) != nullptr);
+        CHECK(findLabel(lv_layer_top(), "Restored scene", true) == nullptr);
         app().selectScene(0);
         lvhost_run(100);
         CHECK(patternHash() == h);
@@ -858,6 +864,7 @@ static void testFx()
 
 int main()
 {
+    setvbuf(stdout, nullptr, _IONBF, 0);   // an LVGL assert (abort) keeps the lines printed before it
     char cwd[512];
     if (!getcwd(cwd, sizeof cwd)) snprintf(cwd, sizeof cwd, ".");
     char sd[600];

@@ -583,6 +583,7 @@ void sanitizeColors(Settings& t)
     if (t.theme > kAccentCustom) t.theme = 0;
     t.accent_hue = (uint16_t)clampi(t.accent_hue, 0, 359);
     if (t.accent_sat) t.accent_sat = (uint8_t)clampi(t.accent_sat, kAccentSatMin, 100);
+    if (t.ui_size > 2) t.ui_size = 0;   // (0.4.6: Display > Interface size)
 }
 
 // ------------------------------------------------------------------------------- engine posting
@@ -929,7 +930,7 @@ bool assignSample(int pad, int layer, Sample* smp, const SampleRef& ref, bool ed
     }
     const int slot = slotOpen(smp, ref, edited);
     if (slot < 0) {
-        say("Brak wolnych slotów na sample");
+        say("No free sample slots");
         maybeFree(smp);
         return false;
     }
@@ -1086,11 +1087,11 @@ void formatSdStatus(uint64_t total, uint64_t freeb)
 {
     State& s = S();
     if (!s.sd) {
-        copyStr(s.sd_status, sizeof s.sd_status, "Brak karty SD");
+        copyStr(s.sd_status, sizeof s.sd_status, "No SD card");
         return;
     }
     if (!total) {
-        copyStr(s.sd_status, sizeof s.sd_status, "Karta SD gotowa");
+        copyStr(s.sd_status, sizeof s.sd_status, "SD card ready");
         return;
     }
     const float gib = 1073741824.0f;
@@ -1103,11 +1104,11 @@ bool postJob(Job& j)
 {
     State& s = S();
     if (!s.worker) {
-        say("Loader nie działa");
+        say("Loader not running");
         return false;
     }
     if (!s.jobs.push(j)) {
-        say("Kolejka ładowania jest pełna");
+        say("Load queue full");
         return false;
     }
     ++s.jobs_posted;
@@ -1120,7 +1121,7 @@ void runSave(SaveJob& sj, bool export_only)
     sj.ok = 0;
     if (export_only) {
         sj.ok = projectExportJson(sj.path, sj.proj, sj.refs) ? 1 : 0;
-        if (!sj.ok) copyStr(sj.err, sizeof sj.err, "Nie udało się zapisać JSON");
+        if (!sj.ok) copyStr(sj.err, sizeof sj.err, "Could not write the JSON");
         return;
     }
     if (sj.nwrite > 0) makeDir(sj.dir);
@@ -1131,7 +1132,7 @@ void runSave(SaveJob& sj, bool export_only)
         w.ok = wavSave(w.path, w.s) == WavError::Ok ? 1 : 0;
         if (!w.ok) {
             ++failed;
-            if (!sj.err[0]) sfmt(sj.err, sizeof sj.err, "nie zapisano sampla %s", baseName(w.path));
+            if (!sj.err[0]) sfmt(sj.err, sizeof sj.err, "sample %s not saved", baseName(w.path));
         }
         // A failed WAV is still referenced (intended path + name): opening the project then reports it
         // as a missing sample instead of silently dropping the layer.
@@ -1146,7 +1147,7 @@ void runSave(SaveJob& sj, bool export_only)
     copyStr(wav_err, sizeof wav_err, sj.err);
     sj.err[0] = 0;
     sj.ok = projectSave(sj.path, sj.proj, sj.refs, sj.err, sizeof sj.err) ? 1 : 0;
-    if (!sj.ok && !sj.err[0]) copyStr(sj.err, sizeof sj.err, "Błąd zapisu");
+    if (!sj.ok && !sj.err[0]) copyStr(sj.err, sizeof sj.err, "Write error");
     if (sj.ok && failed) {   // the JSON is on the card, an edited sample is not: partial, stays dirty
         sj.ok = 2;
         copyStr(sj.err, sizeof sj.err, wav_err);
@@ -1162,7 +1163,7 @@ void runLoad(LoadJob& lj)
         for (int l = 0; l < kLayers; ++l) lj.refs[p][l] = SampleRef{};
     lj.ok = projectLoad(lj.path, lj.proj, lj.refs, lj.err, sizeof lj.err) ? 1 : 0;
     if (!lj.ok) {
-        if (!lj.err[0]) copyStr(lj.err, sizeof lj.err, "Nie można otworzyć projektu");
+        if (!lj.err[0]) copyStr(lj.err, sizeof lj.err, "Cannot open the project");
         return;
     }
     for (int p = 0; p < kPads; ++p)
@@ -1381,7 +1382,7 @@ void applyKit(const Result& r)
     State& s = S();
     KitJob* kj = static_cast<KitJob*>(r.job.payload);
     if (kj->count <= 0) {
-        say("Zestaw jest pusty");
+        say("The kit is empty");
         bigFree(kj);
         return;
     }
@@ -1404,8 +1405,8 @@ void applyKit(const Result& r)
         resetRegion(p);
         ++ok;
     }
-    if (ok) sayf("Załadowano zestaw %s (%d/%d)", kj->name, ok, mapped);
-    else say("Nie udało się załadować zestawu");
+    if (ok) sayf("Loaded kit %s (%d/%d)", kj->name, ok, mapped);
+    else say("Could not load the kit");
     bigFree(kj);
     ++s.revs.samples;
     ++s.revs.pads;
@@ -1419,7 +1420,7 @@ void applyProbe(const Result& r)
     if (j.flag == 2) {   // App::previewKit: play the kit's first sound; the browser preview is unchanged
         const bool still = s.sd && j.index >= 0 && j.index < front().count() && s.ui.lib_sel == j.index;
         if (!j.path[0]) {
-            say("Zestaw jest pusty");
+            say("The kit is empty");
         } else if (!r.sample) {
             sayf("%s: %s", baseName(j.path), wavErrorText(r.err));
         } else if (!still) {
@@ -1474,11 +1475,11 @@ void applyScan(const Result& r)
     const bool cut = front().truncated();
     if (cut && s.sd) {
         const int used = (int)strlen(s.sd_status);
-        sfmt(s.sd_status + used, (int)sizeof s.sd_status - used, " \xE2\x80\xA2 lista obcięta");
+        sfmt(s.sd_status + used, (int)sizeof s.sd_status - used, " \xE2\x80\xA2 list truncated");
     }
     if (s.ui_ready && r.job.flag) {
-        if (cut) sayf("Skanowanie SD: %d plików (lista obcięta)", r.count);
-        else sayf("Skanowanie SD: %d plików", r.count);
+        if (cut) sayf("SD scan: %d files (list truncated)", r.count);
+        else sayf("SD scan: %d files", r.count);
     }
     if (s.scan_again) {
         s.scan_again = false;
@@ -1507,14 +1508,14 @@ void applySave(const Result& r, bool export_only)
     if (!export_only && sj->ok) copyStr(s.file_name, sizeof s.file_name, sj->proj.name);   // this .orb is ours now
     if (sj->ok == 1) {
         if (!export_only) s.saved_gen = sj->gen;
-        if (export_only) sayf("Wyeksportowano %s", baseName(sj->path));
-        else if (r.job.flag) sayf("Autozapis: %s", sj->proj.name);
-        else sayf("Zapisano projekt %s", sj->proj.name);
+        if (export_only) sayf("Exported %s", baseName(sj->path));
+        else if (r.job.flag) sayf("Autosave: %s", sj->proj.name);
+        else sayf("Saved project %s", sj->proj.name);
     } else if (sj->ok == 2) {
         // The JSON is written but an edited sample is not: the project stays dirty (autosave retries).
-        sayf("Zapis częściowy: %s", sj->err);
+        sayf("Partly saved: %s", sj->err);
     } else {
-        sayf("Błąd zapisu: %s", sj->err);
+        sayf("Save error: %s", sj->err);
     }
     bigFree(sj);
     ++s.revs.project;
@@ -1550,7 +1551,7 @@ void applyLoad(const Result& r)
                         if (lj->smp[q][m] == x) lj->smp[q][m] = nullptr;
                 sampleFree(x);
             }
-        sayf("Błąd otwarcia: %s", lj->err);
+        sayf("Open error: %s", lj->err);
         bigFree(lj);
         return;
     }
@@ -1630,8 +1631,8 @@ void applyLoad(const Result& r)
     eng().telemetry().watch_pad.store(0, std::memory_order_relaxed);
     s.saved_gen = s.dirty_gen;
     s.last_save_us = nowUs();
-    if (missing) sayf("Otwarto %s (brak sampli: %d)", s.project->name, missing);
-    else sayf("Otwarto projekt %s", s.project->name);
+    if (missing) sayf("Opened %s (missing samples: %d)", s.project->name, missing);
+    else sayf("Opened project %s", s.project->name);
     bigFree(lj);
     bumpAll();
 }
@@ -1673,7 +1674,7 @@ void applySaveWav(const Result& r)
         s.slots[slot].edited = 0;
     }
     maybeFree(src);
-    sayf("Zapisano %s (USER)", baseName(j.path));
+    sayf("Saved %s (USER)", baseName(j.path));
     rescanQuiet();
 }
 
@@ -1764,9 +1765,9 @@ void applySlice(const Result& r)
     Pad& p = P().pad[j.pad];
     const Sample* now = slotSample(p.layer[j.layer].slot);
     if (!now || now->id != j.src_id) {
-        say("Sampel zmienił się - SLICE anulowany");
+        say("The sample changed - SLICE cancelled");
     } else if (r.count <= 1) {
-        say("Nie wykryto uderzeń");
+        say("No hits found");
     } else {
         storeSlices(p, r.pos, r.count, j.pp[PP_END]);
         ++s.revs.pads;
@@ -1789,13 +1790,13 @@ void applyOpResult(const Result& r)
     Layer& L = p.layer[layer];
     const int S0 = L.slot;
     if (!out) {
-        sayf("%s: operacja nie powiodła się", opName(j.op));
+        sayf("%s: operation failed", opName(j.op));
         maybeFree(src);
         return;
     }
     if (S0 < 0 || !s.slots[S0].s || s.slots[S0].s->id != j.src_id) {
         sampleFree(out);
-        say("Sampel zmienił się - operacja anulowana");
+        say("The sample changed - operation cancelled");
         maybeFree(src);
         return;
     }
@@ -1817,7 +1818,7 @@ void applyOpResult(const Result& r)
         copyStr(ref.name, sizeof ref.name, s.slots[S0].ref.name);
         const int N = slotOpen(out, ref, true);
         if (N < 0) {
-            say("Brak wolnych slotów na sample");
+            say("No free sample slots");
             maybeFree(out);
             maybeFree(src);
             return;
@@ -1896,14 +1897,14 @@ bool undoApply(int pad, int layer)
     State& s = S();
     Undo& u = s.undo[pad][layer];
     if (!u.valid) {
-        say("Brak operacji do cofnięcia");
+        say("Nothing to undo");
         return false;
     }
     Pad& p = P().pad[pad];
     Layer& L = p.layer[layer];
     if (L.slot != u.slot || !slotSample(u.slot) || slotSample(u.slot)->id != u.result_id) {
         undoDrop(pad, layer);
-        say("Nie można cofnąć");
+        say("Cannot undo");
         return false;
     }
     memcpy(p.p, u.p, sizeof p.p);
@@ -1933,7 +1934,7 @@ bool undoApply(int pad, int layer)
             if (N < 0) {
                 regHold(prev, -1);
                 maybeFree(prev);
-                say("Brak wolnych slotów na sample");
+                say("No free sample slots");
                 return false;
             }
             L.slot = (int16_t)N;
@@ -1948,7 +1949,7 @@ bool undoApply(int pad, int layer)
     }
     char lbl[8];
     padLabel(pad, lbl, sizeof lbl);
-    sayf("Cofnięto: %s", lbl);
+    sayf("Undone: %s", lbl);
     ++s.revs.samples;
     ++s.revs.pads;
     ++s.revs.params;
@@ -2476,7 +2477,7 @@ void midiMapSave()
         ok = fwrite(buf, 1, len, f) == len;
         ok = fclose(f) == 0 && ok;
     }
-    if (!ok) say("Nie udało się zapisać mapy MIDI");
+    if (!ok) say("Could not save the MIDI map");
 }
 
 void midiMapLoad()
@@ -2522,7 +2523,7 @@ void midiBind(int ch, int cc, const ParamRef& r)
     }
     s.map_count = w;
     if (s.map_count >= kMidiMapMax) {
-        sayf("MIDI LEARN: pełna tablica (%d przypisań)", kMidiMapMax);
+        sayf("MIDI LEARN: map full (%d assignments)", kMidiMapMax);
         return;
     }
     MidiBinding nb;
@@ -2535,7 +2536,7 @@ void midiBind(int ch, int cc, const ParamRef& r)
     ++s.revs.midi;
     char what[48];
     refLabel(r, what, sizeof what);
-    sayf("MIDI LEARN: CC %d (kanał %d) \xE2\x86\x92 %s", cc, ch, what);
+    sayf("MIDI LEARN: CC %d (channel %d) \xE2\x86\x92 %s", cc, ch, what);
 }
 
 // paramSet*() hook: in learn mode the knob moved last is the one the next CC binds to.
@@ -2551,7 +2552,7 @@ void learnTouched(const ParamRef& r)
     ++s.revs.midi;
     char what[48];
     refLabel(r, what, sizeof what);
-    sayf("MIDI LEARN: %s - teraz rusz kontrolerem", what);
+    sayf("MIDI LEARN: %s - now move a controller", what);
 }
 
 void ccHandle(int ch, int cc, int val)
@@ -2586,7 +2587,7 @@ void midiSync()
     x.clock_in.store(cin ? 1 : 0, std::memory_order_relaxed);
     if (n.midi_usb && !s.midi_started) {
         s.midi_started = hal::midiStart(&midiHook, nullptr);
-        if (!s.midi_started) say("Nie można uruchomić USB MIDI");
+        if (!s.midi_started) say("Cannot start USB MIDI");
     }
     // The USB host cannot be stopped: with midi_usb off the hook ignores everything.
     x.on.store(n.midi_usb && s.midi_started ? 1 : 0, std::memory_order_release);
@@ -2598,7 +2599,7 @@ void midiSync()
         s.clock_timer = hal::serviceTimerStart(&clockOutService, nullptr, 1000);
         if (!s.clock_timer) {
             x.clock_out.store(0, std::memory_order_release);
-            say("MIDI clock out: brak timera");
+            say("MIDI clock out: no timer");
         }
     } else if (!out && s.clock_timer) {
         x.clock_out.store(0, std::memory_order_release);
@@ -2646,7 +2647,7 @@ void midiTick()
         s.midi_conn = conn;
         ++s.revs.midi;
         if (conn) sayf("MIDI: %s", hal::midiDeviceName());
-        else say("MIDI: urządzenie odłączone");
+        else say("MIDI: device unplugged");
     }
 
     float ext = 0.0f;
@@ -2888,7 +2889,7 @@ void App::tick()
         now - s.last_save_us > kAutosaveUs) {
         s.last_save_us = now;   // a failed attempt retries in 5 min, not every frame
         if (!ownsFile(s.project->name) && projectFileExists(s.project->name)) {
-            if (!s.autosave_warned) sayf("Autozapis wstrzymany: %s już istnieje (zapisz ręcznie)", s.project->name);
+            if (!s.autosave_warned) sayf("Autosave paused: %s already exists (save by hand)", s.project->name);
             s.autosave_warned = true;
         } else {
             s.autosave_next = true;
@@ -2900,7 +2901,7 @@ void App::tick()
     // MIDI learn ends by itself after a minute without a knob move or a binding.
     if (s.learn && hal::micros() > s.learn_us + kLearnIdleUs) {
         app().midiLearn(false);
-        say("MIDI LEARN wyłączony (brak aktywności)");
+        say("MIDI LEARN off (no activity)");
     }
 
     btTick(now);
@@ -2914,7 +2915,7 @@ void App::tick()
     if ((int)tel.voice_cap.load(std::memory_order_relaxed) < eng().voiceLimit() &&
         (s.overload_us == 0 || now - s.overload_us > kOverloadNoticeUs)) {
         s.overload_us = now;
-        sayf("CPU audio przeciążone: %d głosów \xE2\x80\x94 zwiększ bufor (Settings > Audio)",
+        sayf("Audio CPU overloaded: %d voices \xE2\x80\x94 raise the buffer (Settings > Audio)",
              (int)tel.voice_cap.load(std::memory_order_relaxed));
     }
     // Deferred flash (NVS) writes stall both cores: allowed only after kIdleHoldUs of real silence.
@@ -3347,7 +3348,7 @@ void App::toggleRecord()
     s.recording = !s.recording;
     postSimple(CmdType::SetRecord, s.recording ? 1 : 0);
     ++s.revs.transport;
-    say(s.recording ? "REC: nagrywanie uzbrojone" : "REC wyłączony");
+    say(s.recording ? "REC: recording armed" : "REC off");
 }
 
 void App::setBpm(float bpm)
@@ -3486,7 +3487,7 @@ void App::clearScene()
     for (int t = 0; t < kPads; ++t)
         for (int i = 0; i < kMaxSteps; ++i) sc.track[t].step[i] = Step{};
     patternEdited();
-    say("Wyczyszczono scenę");
+    say("Scene cleared");
 }
 
 void App::clearTrack(int pad)
@@ -3527,7 +3528,7 @@ void App::randomScene()
         }
     }
     patternEdited();
-    say("Wylosowano wzór");
+    say("Random pattern");
 }
 
 void App::selectScene(int scene)
@@ -3551,7 +3552,7 @@ void App::copyScene(int from, int to)
     patternSnapshot(to);
     P().scene_data[to] = P().scene_data[from];
     patternEdited();
-    sayf("Skopiowano scenę %c \xE2\x86\x92 %c", (char)('A' + from), (char)('A' + to));
+    sayf("Copied scene %c \xE2\x86\x92 %c", (char)('A' + from), (char)('A' + to));
 }
 
 void App::setSceneLength(int steps)
@@ -3772,7 +3773,7 @@ void App::loadBuiltinKit(int kit)
         uint32_t mask = 0;
         for (int i = 0; i < k.count && i < kPads; ++i)
             if (builtinSample(kit, i)) mask |= 1u << i;
-        if (mask) padUndoTake(mask, "ZESTAW");
+        if (mask) padUndoTake(mask, "KIT");
     }
     int ok = 0;
     for (int i = 0; i < k.count && i < kPads; ++i) {
@@ -3793,12 +3794,12 @@ void App::loadBuiltinKit(int kit)
     ++s.revs.samples;
     ++s.revs.pads;
     if (!ok) {
-        say("Wbudowany zestaw jest pusty");
+        say("The built-in kit is empty");
         return;
     }
     if (s.inited) {
         markDirty();
-        sayf("Zestaw %s", k.name ? k.name : "");
+        sayf("Kit %s", k.name ? k.name : "");
     }
 }
 
@@ -3859,7 +3860,7 @@ bool App::applyOp(SampleOp op)
                 return true;
             }
         }
-        say("Brak wolnego padu");
+        say("No free pad");
         return false;
     }
     if ((int)op >= (int)SampleOp::Count) return false;
@@ -3867,15 +3868,15 @@ bool App::applyOp(SampleOp op)
     const int slot = p.layer[layer].slot;
     Sample* src = slotSample(slot);
     if (!src) {
-        say("Brak sampla na tej warstwie");
+        say("No sample on this layer");
         return false;
     }
     if (op == SampleOp::ToMono && src->channels == 1) {
-        say("Sampel jest już mono");
+        say("The sample is mono already");
         return false;
     }
     if (op == SampleOp::PrintCrush && p.p[PP_BITS] >= 16.0f && p.p[PP_DOWNSAMPLE] <= 1.0f) {
-        say("Brak efektu BITS / DOWNSAMPLE do zapisania");
+        say("No BITS / DOWNSAMPLE effect to bake");
         return false;
     }
     Job j;
@@ -3913,7 +3914,7 @@ void App::sliceAuto()
         for (layer = 0; layer < kLayers && !slotSample(p.layer[layer].slot); ++layer) {}
     Sample* smp = layer < kLayers ? slotSample(p.layer[layer].slot) : nullptr;
     if (!smp) {
-        say("Brak sampla do pocięcia");
+        say("No sample to slice");
         return;
     }
     Job j;
@@ -3965,7 +3966,7 @@ void App::slicesToPads()
     const Pad& sp = P().pad[src];
     const int count = sp.slice_count;
     if (!count) {
-        say("Najpierw potnij sampel (AUTO / GRID)");
+        say("Slice the sample first (AUTO / GRID)");
         return;
     }
     float starts[kMaxSlices], ends[kMaxSlices];
@@ -3994,8 +3995,8 @@ void App::slicesToPads()
     markDirty();
     // Polish plural: 1 pad, 2-4 pady (not 12-14), else padów.
     const int m10 = made % 10, m100 = made % 100;
-    const char* word = made == 1 ? "pad" : (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) ? "pady" : "padów";
-    sayf("Pocięto na %d %s", made, word);
+    const char* word = made == 1 ? "pad" : (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) ? "pads" : "pads";
+    sayf("Sliced into %d %s", made, word);
 }
 
 void App::duplicatePadTo(int dst)
@@ -4008,7 +4009,7 @@ void App::duplicatePadTo(int dst)
     char a[8], b[8];
     padLabel(src, a, sizeof a);
     padLabel(dst, b, sizeof b);
-    sayf("Skopiowano %s \xE2\x86\x92 %s", a, b);
+    sayf("Copied %s \xE2\x86\x92 %s", a, b);
     ++s.revs.pads;
     ++s.revs.samples;
     markDirty();
@@ -4041,7 +4042,7 @@ void App::rescan()
 {
     State& s = S();
     if (!s.sd) {
-        say("Brak karty SD");
+        say("No SD card");
         return;
     }
     if (s.scan_busy) {
@@ -4164,7 +4165,7 @@ SaveJob* prepareSave(const char* name)
     const bool okd = front().projectDir(clean, sj->dir, sizeof sj->dir);
     if (!okp || !okd) {
         releaseSaveJob(sj);
-        say("Błędna ścieżka projektu");
+        say("Invalid project path");
         return nullptr;
     }
     // Strip a trailing separator, then prefix the WAV names with the project folder.
@@ -4203,11 +4204,11 @@ bool App::saveAs(const char* name)
 {
     State& s = S();
     if (!s.sd) {
-        say("Brak karty SD");
+        say("No SD card");
         return false;
     }
     if (s.save_busy) {
-        say("Zapis w toku");
+        say("Saving in progress");
         return false;
     }
     // <name>.orb of another project (not opened / saved in this session): the second SAVE within 3 s
@@ -4219,7 +4220,7 @@ bool App::saveAs(const char* name)
         char key[48];
         sfmt(key, sizeof key, "save:%s", clean);
         if (!confirmTwice(key)) {
-            sayf("Projekt %s już istnieje - zapisz ponownie, aby go nadpisać", clean);
+            sayf("Project %s already exists - save again to overwrite it", clean);
             return false;
         }
     }
@@ -4294,14 +4295,14 @@ void App::newProject()
     s.saved_gen = s.dirty_gen;
     s.last_save_us = nowUs();
     bumpAll();
-    sayf("Nowy projekt %s", s.project->name);
+    sayf("New project %s", s.project->name);
 }
 
 bool App::exportJson()
 {
     State& s = S();
     if (!s.sd) {
-        say("Brak karty SD");
+        say("No SD card");
         return false;
     }
     SaveJob* sj = snapshot(false);
@@ -4335,17 +4336,17 @@ bool App::deleteProject(const char* name)
 {
     State& s = S();
     if (!s.sd || !name || !name[0]) {
-        say("Brak karty SD");
+        say("No SD card");
         return false;
     }
     if (s.save_busy) {
-        say("Poczekaj, trwa zapis projektu");
+        say("Wait, the project is being saved");
         return false;
     }
     char path[kPathLen];
     if (!front().projectPath(name, path, sizeof path)) return false;
     if (remove(path) != 0) {
-        sayf("Nie udało się usunąć projektu %s", name);
+        sayf("Could not delete project %s", name);
         return false;
     }
     // EXPORT JSON wrote <PROJECTS>/<name>.json next to it, SAVE the project's own samples into <PROJECTS>/<name>/:
@@ -4368,7 +4369,7 @@ bool App::deleteProject(const char* name)
         markDirty();
     }
     ++s.revs.project;
-    sayf("Usunięto projekt %s", name);
+    sayf("Deleted project %s", name);
     return true;
 }
 
@@ -4411,7 +4412,7 @@ bool restartEngine(int new_rate, int block)
         s.rate = new_rate;
     } else {
         eng().init(s.rate, s.project);
-        say("Nie można zmienić częstotliwości");
+        say("Cannot change the sample rate");
     }
     // drainEngine() answered every retirement, so the fresh engine owes nothing for those; every slot
     // (waiting ones too: their retirement is answered now) is installed again and counted once.
@@ -4432,7 +4433,7 @@ bool restartEngine(int new_rate, int block)
     postSimple(CmdType::SetFill, s.ui.fill ? 1 : 0);
     s.playing = false;
     s.recording = false;
-    if (was && !hal::audioStart((uint32_t)s.rate, block, &App::render, &eng())) say("Błąd uruchomienia audio");
+    if (was && !hal::audioStart((uint32_t)s.rate, block, &App::render, &eng())) say("Audio start failed");
     ++s.revs.transport;
     return ok;
 }
@@ -4484,20 +4485,20 @@ void App::applySettings()
     } else if (n.buffer_frames != old.buffer_frames && hal::audioRunning()) {
         // Block size only: restart the stream, the engine keeps running state.
         hal::audioStop();
-        if (!hal::audioStart((uint32_t)s.rate, n.buffer_frames, &App::render, &eng())) say("Błąd uruchomienia audio");
+        if (!hal::audioStart((uint32_t)s.rate, n.buffer_frames, &App::render, &eng())) say("Audio start failed");
     }
     s.settings = n;
     s.settings_edit = n;
     midiSync();
-    if (!hal::settingsSave(n)) say("Nie udało się zapisać ustawień");
-    else say(rate_later ? "Zapisano ustawienia \xE2\x80\x94 częstotliwość zmieni się po wyłączeniu Bluetooth"
-                        : "Zapisano ustawienia");
+    if (!hal::settingsSave(n)) say("Could not save the settings");
+    else say(rate_later ? "Settings saved \xE2\x80\x94 the sample rate changes when Bluetooth is off"
+                        : "Settings saved");
     ++s.revs.settings;
 }
 
 // ---------------------------------------------------------------- status
 bool App::sdReady() const { return S().sd; }
-const char* App::sdStatus() const { return S().sd_status[0] ? S().sd_status : "Brak karty SD"; }
+const char* App::sdStatus() const { return S().sd_status[0] ? S().sd_status : "No SD card"; }
 float App::cpuLoad() const { return S().cpu; }
 int App::activeVoices() const { return S().voices; }
 float App::latencyMs() const { return S().latency; }
@@ -4519,7 +4520,7 @@ void App::renameProject(const char* name)
     if (!name) return;
     while (*name == ' ') ++name;
     if (!name[0]) {
-        say("Nazwa projektu nie może być pusta");
+        say("The project name cannot be empty");
         return;
     }
     char clean[32];
@@ -4531,9 +4532,9 @@ void App::renameProject(const char* name)
     char path[kPathLen];
     struct stat st;
     if (s.sd && front().projectPath(clean, path, sizeof path) && stat(path, &st) == 0)
-        sayf("Projekt %s już istnieje - SAVE go nadpisze", clean);
+        sayf("Project %s already exists - SAVE overwrites it", clean);
     else
-        sayf("Nazwa projektu: %s", clean);
+        sayf("Project name: %s", clean);
 }
 
 void App::setLaunchQuant(LaunchQuant q)
@@ -4549,7 +4550,7 @@ void App::undoPattern()
 {
     State& s = S();
     if (s.pat_undo_scene < 0 || s.pat_undo_scene >= kScenes) {
-        say("Brak zmiany wzoru do cofnięcia");
+        say("No pattern change to undo");
         return;
     }
     const int sc = s.pat_undo_scene;
@@ -4560,7 +4561,7 @@ void App::undoPattern()
         if (s.ui.seq_page >= pages) s.ui.seq_page = pages > 0 ? pages - 1 : 0;
     }
     patternEdited();
-    sayf("Cofnięto zmianę sceny %c", (char)('A' + sc));
+    sayf("Undid the change of scene %c", (char)('A' + sc));
 }
 
 // ---------------------------------------------------------------- ACID BASS (0.3)
@@ -4636,7 +4637,7 @@ void App::bassRandom()
         b.slide = b.gate && rnd(100) < 20 ? 1 : 0;
     }
     patternEdited();
-    sayf("Nowa linia basu w scenie %c", (char)('A' + sc));
+    sayf("New bass line in scene %c", (char)('A' + sc));
 }
 
 void App::bassClear()
@@ -4645,7 +4646,7 @@ void App::bassClear()
     patternSnapshot(sc);
     P().scene_data[sc].bass = BassLine{};
     patternEdited();
-    sayf("Wyczyszczono bas sceny %c", (char)('A' + sc));
+    sayf("Cleared the bass of scene %c", (char)('A' + sc));
 }
 
 uint32_t App::bassNotes() const { return eng().telemetry().bass_notes.load(std::memory_order_relaxed); }
@@ -4658,14 +4659,14 @@ bool App::saveSampleWav()
 {
     State& s = S();
     if (!s.sd) {
-        say("Brak karty SD");
+        say("No SD card");
         return false;
     }
     const int pad = s.ui.pad, layer = s.ui.layer;
     const int slot = P().pad[pad].layer[layer].slot;
     Sample* smp = slotSample(slot);
     if (!smp) {
-        say("Brak sampla na tej warstwie");
+        say("No sample on this layer");
         return false;
     }
     char nm[kNameLen];
@@ -4680,7 +4681,7 @@ bool App::saveSampleWav()
     j.src = smp;
     j.src_id = smp->id;
     if (!front().userPath(nm, j.path, sizeof j.path)) {
-        say("Błędna ścieżka USER");
+        say("Invalid USER path");
         return false;
     }
     regHold(smp, +1);
@@ -4698,11 +4699,11 @@ bool App::exitToLauncher()
     State& s = S();
     if (!s.launcher) s.launcher = hal::launcherAvailable();
     if (!s.launcher) {
-        say("Brak launchera Tab5 na tym urządzeniu");
+        say("No Tab5 launcher on this device");
         return false;
     }
     if (s.save_busy) {
-        say("Zapis w toku - spróbuj za chwilę");
+        say("Saving - try again in a moment");
         return false;
     }
     postSimple(CmdType::Stop);
@@ -4726,9 +4727,9 @@ bool App::exitToLauncher()
         const bool can_save = s.settings.autosave && card && !foreign;
         if (!(can_save && saveBlocking())) {
             if (!confirmTwice("exit")) {
-                if (can_save) say("Błąd zapisu - dotknij ponownie, aby wyjść bez zapisu");
-                else if (foreign) sayf("%s już istnieje - zapisz projekt lub dotknij ponownie, aby wyjść bez zapisu", P().name);
-                else say("Niezapisane zmiany - dotknij ponownie, aby wyjść bez zapisu");
+                if (can_save) say("Save error - tap again to leave without saving");
+                else if (foreign) sayf("%s already exists - save the project or tap again to leave without saving", P().name);
+                else say("Unsaved changes - tap again to leave without saving");
                 return false;
             }
         }
@@ -4749,9 +4750,9 @@ bool App::exitToLauncher()
     if (hal::restartToLauncher()) return true;   // the Tab5 restarts and never gets here
     if (bt) btUnpark();
     if (audio && !hal::audioStart((uint32_t)s.rate, s.settings.buffer_frames, &App::render, &eng()))
-        say("Błąd uruchomienia audio");
+        say("Audio start failed");
     midiSync();
-    say("Nie udało się uruchomić launchera");
+    say("Could not start the launcher");
     return false;
 }
 
@@ -4759,7 +4760,7 @@ bool App::restartApp()
 {
     State& s = S();
     if (s.save_busy) {
-        say("Zapis w toku - spróbuj za chwilę");
+        say("Saving - try again in a moment");
         return false;
     }
     postSimple(CmdType::Stop);
@@ -4780,9 +4781,9 @@ bool App::restartApp()
         const bool can_save = s.settings.autosave && card && !foreign;
         if (!(can_save && saveBlocking())) {
             if (!confirmTwice("restart")) {
-                if (can_save) say("Błąd zapisu - dotknij ponownie, aby uruchomić ponownie bez zapisu");
-                else if (foreign) sayf("%s już istnieje - zapisz projekt lub dotknij ponownie", P().name);
-                else say("Niezapisane zmiany - zapisz projekt lub dotknij ponownie, aby uruchomić bez zapisu");
+                if (can_save) say("Save error - tap again to restart without saving");
+                else if (foreign) sayf("%s already exists - save the project or tap again", P().name);
+                else say("Unsaved changes - save the project or tap again to restart without saving");
                 return false;
             }
         }
@@ -4817,9 +4818,9 @@ void App::midiLearn(bool on)
     s.learn_us = hal::micros();
     ++s.revs.midi;
     ++s.revs.params;
-    if (!on) sayf("MIDI LEARN wyłączony (przypisania: %d)", s.map_count);
-    else if (!s.settings.midi_usb) say("MIDI LEARN: najpierw włącz USB MIDI w ustawieniach");
-    else say("MIDI LEARN: rusz pokrętłem, potem kontrolerem MIDI");
+    if (!on) sayf("MIDI LEARN off (assignments: %d)", s.map_count);
+    else if (!s.settings.midi_usb) say("MIDI LEARN: turn on USB MIDI in the settings first");
+    else say("MIDI LEARN: move a knob, then a MIDI controller");
 }
 
 bool App::midiLearning() const { return S().learn; }
@@ -4833,7 +4834,7 @@ void App::midiClearMap()
     s.learn_armed = false;
     midiMapSave();
     ++s.revs.midi;
-    say("Usunięto przypisania MIDI");
+    say("MIDI assignments cleared");
 }
 
 bool App::midiConnected() const { return S().midi_conn; }
@@ -4852,7 +4853,7 @@ bool App::undoPads()
     State& s = S();
     PadUndo& u = s.pad_undo;
     if (!u.valid) {
-        say("Brak zmiany padów do cofnięcia");
+        say("No pad change to undo");
         return false;
     }
     u.valid = 0;
@@ -4864,7 +4865,7 @@ bool App::undoPads()
         for (int l = 0; l < kLayers; ++l) u.pad[i].layer[l].slot = -1;
     }
     u.mask = 0;
-    sayf("Cofnięto: %s", u.what);
+    sayf("Undone: %s", u.what);
     ++s.revs.samples;
     ++s.revs.pads;
     ++s.revs.params;
@@ -4895,7 +4896,7 @@ void btSaveNow()
     s.settings_edit.bt_enabled = s.settings.bt_enabled;
     s.settings_edit.bt_local = s.settings.bt_local;
     s.settings_edit.bt_volume = s.settings.bt_volume;
-    if (!hal::settingsSave(s.settings)) say("Nie udało się zapisać ustawień");
+    if (!hal::settingsSave(s.settings)) say("Could not save the settings");
 }
 
 // Bridge on: start it, the engine to 44.1 kHz (the Pico takes 16-bit stereo at 44.1 kHz), volume, audio route.
@@ -4908,7 +4909,7 @@ bool btApply(bool on, bool quiet)
     bool moved = false;
     if (on) {
         if (!hal::btEnable(true)) {
-            say("Bluetooth: nie można uruchomić mostka Pico");
+            say("Bluetooth: cannot start the Pico bridge");
             return false;
         }
         s.bt_on = true;
@@ -4919,7 +4920,7 @@ bool btApply(bool on, bool quiet)
         }
         hal::btSetVolume(s.settings.bt_volume);
         hal::btSetAudioRoute(true, s.settings.bt_local != 0);
-        if (!quiet) say(moved ? "Bluetooth włączony \xE2\x80\x94 silnik audio 44,1 kHz" : "Bluetooth włączony");
+        if (!quiet) say(moved ? "Bluetooth on \xE2\x80\x94 audio engine at 44.1 kHz" : "Bluetooth on");
         return true;
     }
     hal::btSetAudioRoute(false, true);
@@ -4935,14 +4936,14 @@ bool btApply(bool on, bool quiet)
         midiSync();
     }
     if (quiet) return true;
-    if (moved) sayf("Bluetooth wyłączony \xE2\x80\x94 silnik audio %d kHz", s.rate / 1000);
-    else say("Bluetooth wyłączony");
+    if (moved) sayf("Bluetooth off \xE2\x80\x94 audio engine at %d kHz", s.rate / 1000);
+    else say("Bluetooth off");
     return true;
 }
 
 bool btReady()
 {
-    if (!S().bt_on) say("Najpierw włącz Bluetooth (Settings > Bluetooth)");
+    if (!S().bt_on) say("Turn on Bluetooth first (Settings > Bluetooth)");
     return S().bt_on;
 }
 
@@ -5001,13 +5002,13 @@ void btTick(uint64_t now)
         } else if (!st.connected && was) {
             s.bt_conn_toast = false;
             // SCAN / SELECT / RECONNECT restart the Pico (the link drops on purpose): keep their hint on screen
-            if (s.bt_on && hal::micros() - s.bt_quiet_us > kBtQuietUs) say("Bluetooth: rozłączono");
+            if (s.bt_on && hal::micros() - s.bt_quiet_us > kBtQuietUs) say("Bluetooth: disconnected");
         }
     }
     if (s.bt_conn_toast && (s.bt.connected_name[0] || now - s.bt_conn_us > kBtNameWaitUs)) {
         s.bt_conn_toast = false;
-        if (s.bt.connected_name[0]) sayf("Bluetooth: połączono z %s", s.bt.connected_name);
-        else say("Bluetooth: połączono");
+        if (s.bt.connected_name[0]) sayf("Bluetooth: connected to %s", s.bt.connected_name);
+        else say("Bluetooth: connected");
     }
     if (!s.bt_on) return;
     for (int i = 0; i < 8; ++i) {
@@ -5050,7 +5051,7 @@ void App::btScan()
 {
     if (!btReady() || !hal::btScan()) return;
     S().bt_quiet_us = hal::micros();
-    say("Bluetooth: szukam urządzeń (20 s) \xE2\x80\x94 włącz parowanie w słuchawkach");
+    say("Bluetooth: searching (20 s) \xE2\x80\x94 put the headphones in pairing mode");
 }
 
 void App::btSelect(const char* mac)
@@ -5062,14 +5063,14 @@ void App::btSelect(const char* mac)
         if (strcmp(s.bt_dev[i].mac, mac) == 0 && s.bt_dev[i].name[0]) name = s.bt_dev[i].name;
     if (!hal::btSelect(mac)) return;
     s.bt_quiet_us = hal::micros();
-    sayf("Bluetooth: łączę z %s\xE2\x80\xA6", name);
+    sayf("Bluetooth: connecting to %s\xE2\x80\xA6", name);
 }
 
 void App::btReconnect()
 {
     if (!btReady() || !hal::btReconnect()) return;
     S().bt_quiet_us = hal::micros();
-    say("Bluetooth: ponowne łączenie\xE2\x80\xA6");
+    say("Bluetooth: reconnecting\xE2\x80\xA6");
 }
 
 void App::audioBootDone() { S().audio_boot_done.store(true, std::memory_order_release); }
@@ -5077,8 +5078,8 @@ void App::audioBootDone() { S().audio_boot_done.store(true, std::memory_order_re
 void App::btTest()
 {
     if (!btReady()) return;
-    if (!S().bt.connected) say("Bluetooth: brak połączonego urządzenia");
-    else if (hal::btTest()) say("Test Bluetooth: lewy kanał, cisza, prawy kanał");
+    if (!S().bt.connected) say("Bluetooth: no device connected");
+    else if (hal::btTest()) say("Bluetooth test: left channel, silence, right channel");
 }
 
 void App::btSetVolume(int pct)
@@ -5139,7 +5140,7 @@ void volSaveNow()
     s.settings_edit.vol_speaker = s.settings.vol_speaker;
     s.settings_edit.vol_headphones = s.settings.vol_headphones;
     s.settings_edit.bt_volume = s.settings.bt_volume;
-    if (!hal::settingsSave(s.settings)) say("Nie udało się zapisać ustawień");
+    if (!hal::settingsSave(s.settings)) say("Could not save the settings");
 }
 
 // tick(): a new output (jack plugged / unplugged, Bluetooth headphones connected / gone, Settings > Audio >
@@ -5155,7 +5156,7 @@ void volTick()
         s.out_kind = k;
         if (k == OutKind::Bluetooth) hal::btSetVolume(s.settings.bt_volume);
         ++s.revs.params;   // the VOLUME knob shows the new output's level
-        if (say_it) sayf("Głośność: %s %d%%", App::outputName(k), app().outputVolume(k));
+        if (say_it) sayf("Volume: %s %d%%", App::outputName(k), app().outputVolume(k));
     }
     if (s.vol_save && hal::micros() - s.vol_save_us >= kVolSaveUs) volSaveNow();
 }
@@ -5198,9 +5199,9 @@ void App::setOutputVolume(int pct)
 const char* App::outputName(OutKind k)
 {
     switch (k) {
-    case OutKind::Headphones: return "słuchawki";
-    case OutKind::Bluetooth: return "słuchawki Bluetooth";
-    default: return "głośnik";
+    case OutKind::Headphones: return "headphones";
+    case OutKind::Bluetooth: return "Bluetooth headphones";
+    default: return "speaker";
     }
 }
 

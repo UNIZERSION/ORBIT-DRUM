@@ -2,7 +2,9 @@
 
 Polska instrukcja i historia wersji. Opis po angielsku: [README.md](../README.md).
 
-Wersja **0.4.5** (24.10.2026). 0.4.5: konsola testowa zajmuje pamięć dopiero po pierwszej komendzie z komputera
+Wersja **0.4.7** (24.10.2026). 0.4.7: **jedno demo** przy starcie — utwór w stylu brzmienia 303 + 909 z „Da Funk” Daft Punk (111 BPM, g-moll, przesterowana linia acid na prostym groovie 909; nuty i wzory są nasze). Sceny A–D to intro, groove z basem, przerwa bez stopy i pełna wersja; FOLLOW gra je jako piosenkę. NEW PROJECT zaczyna od pustego projektu (120 BPM, domyślne pokrętła).
+0.4.6: obsługa **klawiatury M5Stack Tab5 Keyboard** ze skrótami jak w Ableton Live (rozdział 3a); cały interfejs i komunikaty **po angielsku**; większe okno ustawień i nowa opcja **Interface size** (Ustawienia → Display: Standard / Large / Extra large — większe okna, listy i pola dotyku); lepszy dotyk przycisków górnego paska; w powiększonym panelu BROWSER kategoria (np. Drums) od razu otwiera pliki w dużym widoku, a widok BROWSER ma listę kategorii obok wyszukiwarki; BASS bez pokrętła TUNE, za to linia i KEYS sięgają oktawę niżej i wyżej (C0–C5); przewodnik ? ma karty ze skrótami klawiatury.
+0.4.5: konsola testowa zajmuje pamięć dopiero po pierwszej komendzie z komputera
 (6 KB RAM więcej dla aplikacji), długie odpowiedzi nie utykają już w USB.
 0.4.4: **mniejsze opóźnienie Bluetooth po stronie Tab5** — ORBIT co 2 s
 odczytuje, ile dźwięku czeka w buforze Pico (Ustawienia → Bluetooth: „bufor Pico ok. X ms”), a gdy bufor
@@ -50,7 +52,7 @@ w prototypie były tylko symulacją, tu działają naprawdę.
    poleceniem `python -I tools/make_release.py`) i rozpakuj na kartę microSD (folder `ORBIT` w katalogu głównym).
    Karta może być FAT32 albo exFAT.
 2. Włóż kartę do Tab5 i uruchom launcher. W zakładce **SD** wybierz
-   `ORBIT/ORBIT_DRUM_0.4.5.bin` i zainstaluj go do slotu aplikacji, potem **BOOT**.
+   `ORBIT/ORBIT_DRUM_0.4.7.bin` i zainstaluj go do slotu aplikacji, potem **BOOT**.
 3. Powrót do launchera: **Ustawienia → About → BACK TO LAUNCHER** (zapyta o niezapisane zmiany)
    albo przycisk RESET.
 
@@ -60,7 +62,7 @@ Nie używaj `idf.py flash` na Tab5 z launcherem — nadpisałoby to launcher pod
 
 ## 2. Test sprzętu (zalecany przed pierwszym użyciem)
 
-`ORBIT/TEST/ORBIT_SELFTEST_0.4.5.bin` instaluje się tak samo. Pokazuje paski kolorów, punkty dotyku
+`ORBIT/TEST/ORBIT_SELFTEST_0.4.7.bin` instaluje się tak samo. Pokazuje paski kolorów, punkty dotyku
 (do 5 palców) z częstotliwością odczytu, ton 440 Hz i metronom ze statystyką opóźnienia i przerw
 (xrun), stan słuchawek (surowy bajt HP_DET), listę plików z karty, baterię i licznik FPS.
 Procedura i co zanotować: `docs/SPRZET_TAB5.md`, sekcja 9. Najważniejsze do potwierdzenia:
@@ -74,17 +76,49 @@ kierunek obrazu i dotyku, dźwięk z głośnika i słuchawek, wykrywanie słucha
 | **SAMPLE** | Fala prawdziwego sampla; przeciągnij pomarańczowe znaczniki START/END, podwójne dotknięcie znacznika = przejście przez zero. Zakładki TRIM, SLICE, ENVELOPE, FILTER, PITCH, LFO zmieniają pokrętła. LAYER 1–4 (przytrzymaj: tryb warstw, wyczyść). ✎ otwiera SAMPLE DETAILS (normalizacja, odwrócenie, przycięcie, fade, mono, crush, UNDO, zapis WAV, choke, wyjście, polifonia). |
 | **SEQUENCE** | 8 ścieżek × 16 kroków (A1–B4 / C1–D4), przeciąganie maluje kroki. VELOCITY, PROBABILITY i MORE (RATCHET, NUDGE, PITCH, COND) edytują wartości kroków. Swing, podział, długość do 64 kroków (BAR), FILL, RANDOM, CLEAR z UNDO. |
 | **MIXER** | 8 szyn + MASTER: suwaki (podwójne dotknięcie = 0 dB), mierniki, M/S, L = limiter, C = metronom. |
-| **BROWSER** | Sample i zestawy z karty, wyszukiwarka z polską klawiaturą, podgląd fali, ▶ PREVIEW, LOAD TO pad, LOAD KIT (z potwierdzeniem i UNDO). |
+| **BROWSER** | Sample i zestawy z karty, lista kategorii obok wyszukiwarki, wyszukiwarka z polską klawiaturą, podgląd fali, ▶ PREVIEW, LOAD TO pad, LOAD KIT (z potwierdzeniem i UNDO). |
 | **FX** | Pogłos, delay zsynchronizowany z tempem, makra LO-FI / WIDE / PUMP / SPACE, limiter, master, metronom. |
-| **BASS** | Automat basowy w stylu 303 (jeden głos, filtr 24 dB z rezonansem, akcent, slide). 16 kroków taktu (jak w SEQUENCE): dotknij kroku, potem klawisza (nuta + przejście do następnego kroku) albo rysuj nuty palcem po linii. GATE / ACCENT / SLIDE / OCT ± dla wybranego kroku, SAW / SQR, MUTE, RANDOM, CLEAR z UNDO. Przycisk **KEYS**: dwie oktawy do grania na żywo bez zapisu, kilkoma palcami naraz (OCT ± zakres, ACCENT, SLIDE = płynne przejście przy przesuwaniu palca, SAW / SQR); grająca linia podświetla swój klawisz, trzymany klawisz ma pierwszeństwo przed linią. Pokrętła (w obu trybach): TUNE, CUTOFF, RESO, ENV MOD, DECAY, ACCENT, DRIVE, FX SEND, LEVEL. Bas gra na szynie 8 miksera (BASS). |
+| **BASS** | Automat basowy w stylu 303 (jeden głos, filtr 24 dB z rezonansem, akcent, slide). 16 kroków taktu (jak w SEQUENCE): dotknij kroku, potem klawisza (nuta + przejście do następnego kroku) albo rysuj nuty palcem po linii. GATE / ACCENT / SLIDE / OCT ± dla wybranego kroku, SAW / SQR, MUTE, RANDOM, CLEAR z UNDO. Przycisk **KEYS**: dwie oktawy do grania na żywo bez zapisu, kilkoma palcami naraz (OCT ± zakres, ACCENT, SLIDE = płynne przejście przy przesuwaniu palca, SAW / SQR); grająca linia podświetla swój klawisz, trzymany klawisz ma pierwszeństwo przed linią. Linia obejmuje C0–C5 (od 0.4.6, zamiast pokrętła TUNE). Pokrętła (w obu trybach): CUTOFF, RESO, ENV MOD, DECAY, ACCENT, DRIVE, FX SEND, LEVEL. Bas gra na szynie 8 miksera (BASS). |
 | **Prawy panel** | VOLUME = głośność wyjścia, która gra teraz (SPK głośnik, HP słuchawki, BT); każde wyjście pamięta swój poziom i przełącza go samo. FX SEND i PAN wybranego padu (głośność padu: SAMPLE → TRIM → PAD VOL). Stop/powrót, start, nagrywanie; TAP, –/+ (przytrzymaj BPM, aby wpisać tempo). |
 | **Powiększanie** | Narożniki w nagłówku PADS, BROWSER, SCENES i w prawym panelu (okno główne: przycisk obok zakładek) powiększają okno na obszar pod paskiem; ten sam przycisk je zmniejsza. Widok BASS ma własny przycisk (obok PLAY): bas na **cały ekran**, pasek górny chowa się do powrotu. Powiększone okno jest budowane od nowa w dużym rozmiarze z większymi czcionkami i ikonami, więc tekst i linie są ostre (nie rozciągnięty obrazek). |
 | **SCENES** | Sceny A–D (zmiana kwantowana do taktu), „+”: kopiuj, wyczyść, cofnij. Siatka 16 slotów to aranżacja piosenki (FOLLOW ją odtwarza), wiersz FX = rzut efektów w danym slocie. GRID i LENGTH ustawiają scenę. |
 | **Pasek górny** | Folder = projekty na karcie (zapis, otwieranie, NEW PROJECT = pusty projekt, DELETE = usunięcie po drugim dotknięciu, eksport JSON). Kolory interfejsu: Ustawienia → Display → **Base color** (tło, panele, pady i pokrętła: LIGHT, WARM, SILVER, SLATE, DARK, BLACK) i **Accent color** (8 gotowych albo CUSTOM: suwaki HUE i SATURATION z podglądem); zmiana po szybkim restarcie, projekt zapisuje się i otwiera ponownie. Zębatka = ustawienia (General, Audio, MIDI, Bluetooth, Display, Touch, Storage, About). ? = przewodnik. Chip **BT** (gdy Bluetooth jest włączony) otwiera ustawienia Bluetooth. |
 
 Pokrętła: przeciągnij w pionie, podwójne dotknięcie przywraca wartość domyślną.
+**Ustawienia → Display → Interface size** powiększa okna, listy wyboru i pola dotyku (pola dotyku całego ekranu po szybkim restarcie). W powiększonym panelu BROWSER dotknięcie kategorii od razu otwiera jej pliki w dużym widoku.
 Animacje (rozbłyski kroków, ruch pokręteł, ripple) wyłącza **Ustawienia → Display → Animations**
 albo tryb oszczędzania energii.
+
+## 3a. Klawiatura Tab5 Keyboard
+
+Klawiaturę M5Stack Tab5 Keyboard można podłączać i odłączać w trakcie pracy. Skróty jak w Ableton Live:
+
+| Klawisz | Działanie |
+|---|---|
+| Spacja | Start od początku / stop |
+| Shift+Spacja | Dalej od miejsca zatrzymania |
+| Enter | Start (gdy stoi) |
+| F9 | Nagrywanie (REC) |
+| Tab / Shift+Tab | Następny / poprzedni widok |
+| A W S E D F T G Y H U J K O L P ; ' | Nuty (klawiatura MIDI komputera): w BASS gra 303, w innych widokach pady A1–D4 |
+| Z / X | Oktawa basu w dół / w górę |
+| C / V | Siła uderzenia (velocity) w dół / w górę |
+| M | Klawiatura MIDI włącz / wyłącz |
+| Strzałki góra / dół | Scena |
+| Strzałki lewo / prawo | Pad |
+| 0 | Wycisz wybrany pad |
+| F1–F8 | Wycisz pady pokazanego banku |
+| F11 | Powiększ obszar roboczy (BASS: cały ekran) |
+| Esc | Zamknij okno lub listę, zmniejsz powiększony panel |
+| Ctrl+Z | Cofnij |
+| Ctrl+S | Zapisz projekt |
+| Ctrl+O, Ctrl+N, Ctrl+Shift+S | Menedżer projektów |
+| Ctrl+, | Ustawienia |
+| Ctrl+Alt+B / Ctrl+Alt+M | BROWSER / MIXER |
+| Shift+F1 | Przewodnik |
+
+Gdy otwarta jest klawiatura ekranowa (nazwa projektu, wyszukiwarka, tempo), klawisze piszą w niej: Enter = OK,
+Esc = anuluj.
 
 ## 4. Własne sample i zestawy
 

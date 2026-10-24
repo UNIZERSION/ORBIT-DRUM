@@ -1,6 +1,7 @@
 // BROWSER categories panel (#l-browser, left bottom): head with the search icon and the eight
 // category rows (.l-category). Tapping a row selects the library category and opens the BROWSER
-// view; the search icon opens the BROWSER view with its search field focused.
+// view; the search icon opens the BROWSER view with its search field focused. Maximized, both open the BROWSER
+// view maximized (0.4.6).
 // Refresh: only the two rows whose active look changes are touched.
 #include "ui/ui.h"
 
@@ -57,18 +58,34 @@ void initStyles()
     lv_style_set_text_color(&s_row_active, c(col::accent_dark));
 }
 
+// 0.4.6: from the maximized BROWSER panel a category (or the search) opens straight in the BROWSER view, drawn
+// large in its place (the work area maximized): no restore and second tap. After the event: the rebuild deletes
+// the row that was tapped.
+void openLarge(void* search)
+{
+    if (panelMaxed() != Panel::Browser) return;
+    ensureView(View::Browser);
+    panelToggleMax(Panel::Work);   // restores the BROWSER panel, maximizes the work area (it shows the view)
+    if (search) view_browser::focusSearch();
+}
+
 void rowCb(lv_event_t* e)
 {
     const int i = (int)(intptr_t)lv_event_get_user_data(e);
     if (i < 0 || i >= kRows) return;
     app().setCategory(kCats[i]);
     app().setView(View::Browser);
+    if (panelMaxed() == Panel::Browser) lv_async_call(openLarge, nullptr);
 }
 
 void searchCb(lv_event_t*)
 {
     app().setView(View::Browser);
     ensureView(View::Browser);   // views are created lazily
+    if (panelMaxed() == Panel::Browser) {
+        lv_async_call(openLarge, (void*)1);
+        return;
+    }
     view_browser::focusSearch();
 }
 

@@ -110,13 +110,19 @@ void buttonCommon(lv_obj_t* btn, int hit)
     lv_obj_remove_flag(btn, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
     lv_obj_add_style(btn, &styles().pressed, LV_STATE_PRESSED);
     lv_obj_add_event_cb(btn, pressGateCb, (lv_event_code_t)(LV_EVENT_PRESSED | LV_EVENT_PREPROCESS), nullptr);
-    if (hit > 0) lv_obj_set_ext_click_area(btn, hit);
+    if (hit > 0) lv_obj_set_ext_click_area(btn, hit + hitBonus());
     rippleAttach(btn);
 }
 
 }  // namespace wk
 
 void pressFeedbackSync() { wk::syncFeedback(); }
+
+int hitBonus()
+{
+    const int i = app().settings().ui_size;
+    return i == 1 ? 4 : (i == 2 ? 8 : 0);
+}
 
 // ================================================================ icons
 namespace {

@@ -109,7 +109,7 @@ lv_obj_t* toggleCreate(lv_obj_t* parent, bool on, void (*cb)(bool on, void* user
     lv_obj_set_size(o, 45, 24);
     lv_obj_add_flag(o, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(o, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_ext_click_area(o, 10);
+    lv_obj_set_ext_click_area(o, 10 + hitBonus());
     lv_obj_t* k = lv_obj_create(o);
     lv_obj_remove_style_all(k);
     lv_obj_add_style(k, &s_knob, 0);
@@ -225,20 +225,26 @@ void popupMenu(lv_obj_t* anchor, const char* const* items, int count, int select
     s_popup = ov;
     lv_obj_add_event_cb(ov, popupOverlayCb, LV_EVENT_ALL, p);
 
-    constexpr int kRowH = 36;
+    // [0.4.6] Rows as large as the anchor's panel draws (a maximized panel, a larger dialog) or Display > Interface size.
+    float k = anchor ? uiScaleOf(anchor).f : 1.0f;
+    if (uiSizeFactor() > k) k = uiSizeFactor();
+    const int kRowH = (int)lroundf(36.0f * k);
     constexpr int kMaxRows = 8;
     lv_area_t aa = {0, 0, 0, 0};
     if (anchor) screenArea(anchor, &aa);   // as drawn: the anchor's panel may be scaled (maximize)
     int32_t w = anchor ? lv_area_get_width(&aa) : 200;
-    if (w < 150) w = 150;
-    const int rows = count < kMaxRows ? count : kMaxRows;
+    const int32_t wmin = (int32_t)lroundf(150.0f * k);
+    if (w < wmin) w = wmin;
+    const int32_t sh0 = lv_display_get_vertical_resolution(lv_obj_get_display(ov));
+    int rows = count < kMaxRows ? count : kMaxRows;
+    while (rows > 3 && rows * (kRowH + 2) + 10 > sh0 - 16) --rows;   // fits on the screen (the rest scrolls)
     const int32_t h = rows * kRowH + (rows - 1) * 2 + 10;
     lv_obj_t* box = lv_obj_create(ov);
     lv_obj_remove_style_all(box);
     lv_obj_add_style(box, &s_menu_box, 0);
     lv_obj_set_size(box, w, h);
+    if (count <= rows) lv_obj_remove_flag(box, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_flex_flow(box, LV_FLEX_FLOW_COLUMN);
-    if (count <= kMaxRows) lv_obj_remove_flag(box, LV_OBJ_FLAG_SCROLLABLE);
     const int32_t sw = lv_display_get_horizontal_resolution(lv_obj_get_display(ov));
     const int32_t sh = lv_display_get_vertical_resolution(lv_obj_get_display(ov));
     int32_t x = aa.x1, y = aa.y2 + 4;
@@ -254,6 +260,10 @@ void popupMenu(lv_obj_t* anchor, const char* const* items, int count, int select
         lv_obj_add_style(r, &s_menu_row_pr, LV_STATE_PRESSED);
         if (i == selected) lv_obj_add_style(r, &s_menu_row_sel, 0);
         lv_obj_set_size(r, LV_PCT(100), kRowH);
+        if (k > 1.0f) {
+            lv_obj_set_style_text_font(r, fontScaled(f_r14, k), 0);
+            lv_obj_set_style_pad_hor(r, (int32_t)lroundf(12.0f * k), 0);
+        }
         lv_obj_add_flag(r, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_remove_flag(r, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_set_user_data(r, (void*)(intptr_t)i);
@@ -264,8 +274,8 @@ void popupMenu(lv_obj_t* anchor, const char* const* items, int count, int select
         lv_obj_align(l, LV_ALIGN_LEFT_MID, 0, 0);
         lv_obj_add_event_cb(r, popupRowCb, LV_EVENT_CLICKED, p);
     }
-    if (selected >= kMaxRows && selected < count)
-        lv_obj_scroll_to_y(box, (selected - kMaxRows / 2) * (kRowH + 2), LV_ANIM_OFF);
+    if (selected >= rows && selected < count)
+        lv_obj_scroll_to_y(box, (selected - rows / 2) * (kRowH + 2), LV_ANIM_OFF);
 }
 
 // ================================================================ select
@@ -336,7 +346,7 @@ lv_obj_t* selectCreate(lv_obj_t* parent, int w, int h, const char* const* option
     lv_obj_set_size(o, w, h);
     lv_obj_add_flag(o, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(o, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_ext_click_area(o, mini ? 8 : 4);
+    lv_obj_set_ext_click_area(o, (mini ? 8 : 4) + hitBonus());
     if (mini) {
         lv_obj_set_style_pad_hor(o, 6, 0);
         lv_obj_set_style_pad_ver(o, 0, 0);
@@ -397,7 +407,7 @@ lv_obj_t* hsliderCreate(lv_obj_t* parent, int w, int min, int max, int value, vo
     lv_slider_set_range(s, min, max);
     lv_slider_set_value(s, value, LV_ANIM_OFF);
     lv_obj_remove_flag(s, LV_OBJ_FLAG_SCROLL_CHAIN);
-    lv_obj_set_ext_click_area(s, 14);
+    lv_obj_set_ext_click_area(s, 14 + hitBonus());
     lv_obj_add_event_cb(s, hsliderCb, LV_EVENT_ALL, h);
     return s;
 }
@@ -632,6 +642,20 @@ void kbOpen(const char* title, const char* initial, int maxlen, void (*on_done)(
 
 }  // namespace
 
+bool keyboardTypeKey(bool is_char, char ch, bool backspace, bool enter, bool esc)
+{
+    Keyboard* k = s_kb;
+    if (!k) return false;
+    if (esc) kbClose(false);
+    else if (enter) kbClose(true);
+    else if (backspace) lv_textarea_delete_char(k->ta);
+    else if (is_char && (unsigned char)ch >= 0x20 && (unsigned char)ch < 0x7F) {
+        const char t[2] = {ch, 0};
+        kbInsert(k, t);
+    }
+    return true;   // (other keys: swallowed while typing)
+}
+
 void keyboardOpen(const char* title, const char* initial, int maxlen,
                   void (*on_done)(const char* text, void* user), void* user)
 {
@@ -716,7 +740,7 @@ lv_obj_t* textFieldCreate(lv_obj_t* parent, int w, const char* text, int maxlen,
     lv_obj_set_style_pad_ver(o, 0, 0);
     lv_obj_add_flag(o, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(o, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_ext_click_area(o, 4);
+    lv_obj_set_ext_click_area(o, 4 + hitBonus());
     t->lbl = lv_label_create(o);
     lv_label_set_long_mode(t->lbl, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_width(t->lbl, LV_PCT(100));

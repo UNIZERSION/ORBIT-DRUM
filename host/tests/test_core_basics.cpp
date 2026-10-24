@@ -134,9 +134,39 @@ int main()
 
     static Project p;
     projectDefaults(p);
-    CHECK(p.bpm == 120.f);
+    // 0.4.6: the only demo, in the manner of "Da Funk": 111 BPM, 2-bar scenes, four on the floor, clap on 2 and 4,
+    // the acid line from scene B on (G minor), a song chain A A B B C C D D B B
+    CHECK(p.bpm == 111.f);
     CHECK(p.scene_data[0].track[0].step[0].on == 1);
-    CHECK(trackLength(p.scene_data[0], 0) == 16);
+    CHECK(trackLength(p.scene_data[0], 0) == 32);
+    for (int s = 0; s < kScenes; ++s) CHECK(p.scene_data[s].length == 32 && p.scene_data[s].swing == 56);
+    for (int st = 0; st < 32; st += 4) CHECK(p.scene_data[1].track[0].step[st].on == 1);
+    for (int st : {4, 12, 20, 28}) CHECK(p.scene_data[1].track[4].step[st].on == 1);
+    CHECK(p.scene_data[2].track[0].step[4].on == 0);   // the break has no kick
+    {
+        int gates[kScenes] = {};
+        for (int s = 0; s < kScenes; ++s)
+            for (int st = 0; st < kMaxSteps; ++st) {
+                const BassStep& b = p.scene_data[s].bass.step[st];
+                if (!b.gate) continue;
+                ++gates[s];
+                CHECK(b.note >= kBassNoteMin && b.note <= kBassNoteMax && st < 32);
+                static const int kMinor[] = {0, 2, 3, 5, 7, 8, 10};   // G natural minor, relative to G
+                bool in = false;
+                for (int d : kMinor) in = in || (((b.note - 7) % 12 + 12) % 12) == d;
+                CHECK(in);
+            }
+        CHECK(gates[0] == 0 && gates[1] > 16 && gates[2] > 16 && gates[3] > 16);
+    }
+    CHECK(p.song.slot[0] == 0 && p.song.slot[2] == 1 && p.song.slot[9] == 1 && p.song.slot[10] == -1 && !p.song.follow);
+    CHECK(p.g[GP_BASS_DRIVE] > 0.5f && p.g[GP_BASS_RESO] > 0.7f);
+    static Project e;
+    projectEmpty(e);   // NEW PROJECT: nothing of the demo
+    CHECK(e.bpm == 120.f && e.scene_data[0].length == 16 && e.song.slot[0] == -1);
+    CHECK(e.g[GP_BASS_DRIVE] == globalSpec(GP_BASS_DRIVE).def);
+    for (int s = 0; s < kScenes; ++s)
+        for (int t = 0; t < kPads; ++t)
+            for (int st = 0; st < kMaxSteps; ++st) CHECK(!e.scene_data[s].track[t].step[st].on && !e.scene_data[s].bass.step[st].gate);
     CHECK(std::fabs(busGain(0.7071f) - 1.f) < 1e-3f);
     std::printf("sizeof(Project)=%u sizeof(Scene)=%u sizeof(Pad)=%u\n", (unsigned)sizeof(Project), (unsigned)sizeof(Scene), (unsigned)sizeof(Pad));
 

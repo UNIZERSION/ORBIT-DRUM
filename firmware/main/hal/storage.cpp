@@ -151,11 +151,11 @@ void ensureMutex()
 const char* mountError(esp_err_t err)
 {
     switch (err) {
-    case ESP_FAIL: return "brak systemu plików FAT32/exFAT";
+    case ESP_FAIL: return "no FAT32/exFAT file system";
     case ESP_ERR_TIMEOUT:
     case ESP_ERR_INVALID_RESPONSE:
     case ESP_ERR_INVALID_CRC:
-    case ESP_ERR_NOT_FOUND: return "brak karty";
+    case ESP_ERR_NOT_FOUND: return "no card";
     default: return esp_err_to_name(err);
     }
 }

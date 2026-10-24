@@ -48,7 +48,7 @@ struct Reg {
     lv_obj_t* root;
     UiScale s;
 };
-constexpr int kRegMax = 4;
+constexpr int kRegMax = 6;   // maximized panel(s) + a scaled dialog (0.4.6)
 Reg g_reg[kRegMax] = {};
 UiScale g_build;
 

@@ -26,6 +26,10 @@ enum class Icon : uint8_t {
 lv_obj_t* iconCreate(lv_obj_t* parent, Icon icon, int size, uint32_t color);
 void iconSet(lv_obj_t* img, Icon icon, int size);
 
+// [0.4.6] Extra touch px of every button, toggle, select, slider and knob from Display > Interface size
+// (0 / 4 / 8), read when the widget is made (the UI is built at the start: it changes after a restart).
+int hitBonus();
+
 // ---------------------------------------------------------------- buttons
 // All buttons: press feedback (scale .963 + brightness, 120 ms), ripple (if enabled), ext hit area.
 // Buttons wider than 120 px or taller than 44 px keep only the brightness part of the press look:
@@ -84,6 +88,16 @@ lv_obj_t* modalOpen(const char* title, int w = 824, int min_h = 410, int max_h =
 lv_obj_t* modalFooter(const char* note);   // 58 px footer row (note left, buttons right)
 void modalClose();
 bool modalIsOpen();
+// [0.4.6] Larger dialogs. modalScaleFor(base): base (1 for most dialogs, 1.25 for SETTINGS) times Display >
+// Interface size (1 / 1.15 / 1.3). modalScale(k): re-lays the open modal out at k after its body is filled (fonts
+// from the ladder, larger controls and touch targets), centred, at most 1264 x 704 (the body scrolls).
+// modalScaleKids(parent, from): children added to the open modal later (from that index on) at its scale.
+float uiSizeFactor();
+float modalScaleFor(float base);
+void modalScale(float k);
+float modalScaleOf();
+int modalMaxHeight();
+void modalScaleKids(lv_obj_t* parent, int from = 0);
 // [added by the widget kit] Called once when the current modal closes (close button, scrim tap,
 // ESC, modalClose() or replacement by another modal); widgets of the body are deleted right after.
 void modalOnClose(void (*cb)(void* user), void* user);
@@ -107,6 +121,12 @@ void popupMenu(lv_obj_t* anchor, const char* const* items, int count, int select
 // keyboard is open (any clickable overlay on lv_layer_top(); the toast does not count). The pad
 // grid's touch hook stays silent while it is true.
 bool overlayOpen();
+// [0.4.6, keyboard Esc] Closes the modal, else the topmost popup menu / list / on-screen keyboard (as a tap on its
+// scrim would). False when nothing was open.
+bool overlayEscape();
+// [0.4.6] A key of the physical keyboard while the on-screen keyboard is open: printable characters are typed,
+// Backspace deletes, Enter = OK, Esc = cancel. False when the on-screen keyboard is not open (key not used).
+bool keyboardTypeKey(bool is_char, char ch, bool backspace, bool enter, bool esc);
 
 // ---------------------------------------------------------------- feedback
 // Ripple: 12 px accent dot at the touch point, scale x19 and fade to 0 in 560 ms (ease-out).

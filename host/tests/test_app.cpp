@@ -822,7 +822,7 @@ static void testSamples(App& a, bool have_synth)
         const int toasts = testhooks::toastCount();
         a.previewKit(kit_index);
         waitLoader();
-        CHECK(testhooks::toastCount() == toasts);   // no "Zestaw jest pusty" / read error
+        CHECK(testhooks::toastCount() == toasts);   // no "The kit is empty" / read error
         a.stopPreview();
         pump(4);
         CHECK(a.loadKit(kit_index));
@@ -1006,7 +1006,7 @@ static void testSettings(App& a)
 
     // Display colours: base palette + accent (8 presets, CUSTOM = hue + saturation), applied at the next
     // start, saved with APPLY and clamped.
-    static_assert(offsetof(Settings, base) == 76 && sizeof(Settings) == 80, "colours after the 0.3.0 / 0.3.1 payload");
+    static_assert(offsetof(Settings, base) == 76 && sizeof(Settings) == 84, "colours after the 0.3.0 / 0.3.1 payload");
     const Settings def;
     CHECK(def.base == 0 && def.theme == 0 && def.accent_hue == 0 && def.accent_sat == 0);
     // a 0.3.0 / 0.3.1 file is 76 bytes: decoded over the defaults (hal/storage.cpp), the colours stay LIGHT / ORANGE
@@ -1093,7 +1093,7 @@ static void testBluetooth(App& a)
     a.btSetEnabled(true);
     CHECK(a.btEnabled() && a.revs().bt != rb0);
     CHECK(a.engine().sampleRate() == 44100 && halHostAudioRate() == 44100 && halHostAudioBlock() == 128);
-    CHECK(containsCi(testhooks::lastToast(), "Bluetooth włączony") && containsCi(testhooks::lastToast(), "44,1 kHz"));
+    CHECK(containsCi(testhooks::lastToast(), "Bluetooth on") && containsCi(testhooks::lastToast(), "44.1 kHz"));
     CHECK(hal::settingsLoad(rd) && rd.bt_enabled == 1 && rd.sample_rate == 48000);   // the user's rate stays
     CHECK(a.settings().sample_rate == 48000 && a.settingsEdit().bt_enabled == 1);
     pump(2);
@@ -1124,7 +1124,7 @@ static void testBluetooth(App& a)
     const uint32_t rb1 = a.revs().bt;
     btFeed("STATE connection=2 audio=0");
     CHECK(a.btStatus().connected && a.revs().bt != rb1);
-    CHECK(testhooks::toastCount() > toasts && strcmp(testhooks::lastToast(), "Bluetooth: połączono z AirPods Pro") == 0);
+    CHECK(testhooks::toastCount() > toasts && strcmp(testhooks::lastToast(), "Bluetooth: connected to AirPods Pro") == 0);
     // The connect sent LIST again: 4 saved + 8 found devices all reach the App (the Pico lists up to 32).
     CHECK(sentHas(btSent(), "LIST"));
     btFeed("DEVICE 1 A4:C3:37:5E:91:0B -127 1 1 AirPods Pro");
@@ -1207,9 +1207,9 @@ static void testBluetooth(App& a)
     // SCAN restarts the Pico: the link drops on purpose and the pairing hint stays (no "rozłączono" over it).
     a.btScan();
     halHostBtAdvance(60);
-    CHECK(sentHas(btSent(), "SCAN") && containsCi(testhooks::lastToast(), "włącz parowanie"));
+    CHECK(sentHas(btSent(), "SCAN") && containsCi(testhooks::lastToast(), "pairing mode"));
     btFeed("RESTART scanning; saved target preserved");
-    CHECK(!a.btStatus().connected && a.btStatus().scanning && containsCi(testhooks::lastToast(), "włącz parowanie"));
+    CHECK(!a.btStatus().connected && a.btStatus().scanning && containsCi(testhooks::lastToast(), "pairing mode"));
     btFeed("READY version=0.9.5 cap_airpods=1");
     btFeed("SCAN_DONE");
     btFeed("STATE connection=2 audio=0");
@@ -1219,9 +1219,9 @@ static void testBluetooth(App& a)
     a.btSelect("00:42:79:B1:22:EC");
     halHostBtAdvance(60);
     CHECK(sentHas(btSent(), "SELECTMAC 00:42:79:B1:22:EC"));
-    CHECK(containsCi(testhooks::lastToast(), "łączę z JBL Flip 6"));
+    CHECK(containsCi(testhooks::lastToast(), "connecting to JBL Flip 6"));
     btFeed("SELECTED JBL Flip 6; restarting to connect");
-    CHECK(!a.btStatus().connected && containsCi(testhooks::lastToast(), "łączę z JBL Flip 6"));
+    CHECK(!a.btStatus().connected && containsCi(testhooks::lastToast(), "connecting to JBL Flip 6"));
     btFeed("READY version=0.9.5 cap_airpods=1");
     btFeed("STATE connection=2 audio=0");
     CHECK(a.btStatus().connected);
@@ -1233,7 +1233,7 @@ static void testBluetooth(App& a)
     a.settingsEdit().sample_rate = 48000;
     a.applySettings();
     CHECK(a.engine().sampleRate() == 44100 && a.settings().sample_rate == 48000);
-    CHECK(containsCi(testhooks::lastToast(), "po wyłączeniu Bluetooth"));
+    CHECK(containsCi(testhooks::lastToast(), "when Bluetooth is off"));
     a.settingsEdit().bt_enabled = 0;
     a.settingsEdit().bt_volume = 3;
     a.applySettings();
@@ -1242,13 +1242,13 @@ static void testBluetooth(App& a)
     // Disconnect (5 s after the last SCAN / SELECT / RECONNECT: a real one gets its toast)
     halHostSetMicros(hal::micros() + 6000000ull);
     btFeed("STATE connection=0 audio=0");
-    CHECK(!a.btStatus().connected && strcmp(testhooks::lastToast(), "Bluetooth: rozłączono") == 0);
+    CHECK(!a.btStatus().connected && strcmp(testhooks::lastToast(), "Bluetooth: disconnected") == 0);
     halHostSetMicros(0);
 
     // Off: STOP + SLEEP, the engine back at the remembered 48 kHz, saved; buttons are ignored.
     a.btSetEnabled(false);
     CHECK(!a.btEnabled() && a.engine().sampleRate() == 48000 && halHostAudioRate() == 48000);
-    CHECK(strcmp(testhooks::lastToast(), "Bluetooth wyłączony \xE2\x80\x94 silnik audio 48 kHz") == 0);
+    CHECK(strcmp(testhooks::lastToast(), "Bluetooth off \xE2\x80\x94 audio engine at 48 kHz") == 0);
     CHECK(hal::settingsLoad(rd) && rd.bt_enabled == 0 && rd.bt_volume == 55);
     halHostBtAdvance(100);
     sent = btSent();
@@ -1262,16 +1262,16 @@ static void testBluetooth(App& a)
     renderMeasure(24000, pk, rms);
     CHECK(pk > 0.02f);
     a.btScan();
-    CHECK(containsCi(testhooks::lastToast(), "Najpierw włącz Bluetooth"));
+    CHECK(containsCi(testhooks::lastToast(), "Turn on Bluetooth first"));
 
     // Engine already at 44.1 kHz: no switch, nothing to restore.
     a.settingsEdit().sample_rate = 44100;
     a.applySettings();
     CHECK(a.engine().sampleRate() == 44100);
     a.btSetEnabled(true);
-    CHECK(a.engine().sampleRate() == 44100 && strcmp(testhooks::lastToast(), "Bluetooth włączony") == 0);
+    CHECK(a.engine().sampleRate() == 44100 && strcmp(testhooks::lastToast(), "Bluetooth on") == 0);
     a.btSetEnabled(false);
-    CHECK(a.engine().sampleRate() == 44100 && strcmp(testhooks::lastToast(), "Bluetooth wyłączony") == 0);
+    CHECK(a.engine().sampleRate() == 44100 && strcmp(testhooks::lastToast(), "Bluetooth off") == 0);
     a.settingsEdit().sample_rate = 48000;
     a.applySettings();
     CHECK(a.engine().sampleRate() == 48000 && halHostAudioRate() == 48000);
@@ -1447,7 +1447,7 @@ static void testRenameQuantUndo(App& a)
     CHECK(strcmp(a.project().name, "a_b_c__") == 0);   // file-system safe, no trailing dot
     a.renameProject("   ");
     CHECK(strcmp(a.project().name, "a_b_c__") == 0);
-    CHECK(strstr(testhooks::lastToast(), "pusta") != nullptr);
+    CHECK(strstr(testhooks::lastToast(), "cannot be empty") != nullptr);
     a.renameProject(nullptr);
     CHECK(strcmp(a.project().name, "a_b_c__") == 0);
     a.renameProject("0123456789012345678901234567890123456789");
@@ -1455,7 +1455,7 @@ static void testRenameQuantUndo(App& a)
     if (isFile(projPath())) {   // saved by testSaveOpen
         a.renameProject(kProj);
         CHECK(strcmp(a.project().name, kProj) == 0);
-        CHECK(strstr(testhooks::lastToast(), "istnieje") != nullptr);
+        CHECK(strstr(testhooks::lastToast(), "already exists") != nullptr);
     }
     a.renameProject("ORBIT_RENAMED");
     CHECK(strstr(testhooks::lastToast(), "ORBIT_RENAMED") != nullptr);
@@ -1505,7 +1505,7 @@ static void testRenameQuantUndo(App& a)
     CHECK(memcmp(&a.project().scene_data[1], &ref, sizeof ref) == 0);
     CHECK(!a.canUndoPattern() && a.undoPatternScene() == -1);
     a.undoPattern();   // nothing left
-    CHECK(strstr(testhooks::lastToast(), "Brak") != nullptr);
+    CHECK(strstr(testhooks::lastToast(), "No pattern") != nullptr);
     CHECK(memcmp(&a.project().scene_data[1], &ref, sizeof ref) == 0);
 
     a.randomScene();
@@ -1569,7 +1569,7 @@ static void testSaveSampleWav(App& a, bool have_synth)
     waitLoader();
     CHECK(isFile(f1));
     if (!pre1) g_user_files.push_back(f1);
-    CHECK(strstr(testhooks::lastToast(), "Zapisano") != nullptr);
+    CHECK(strstr(testhooks::lastToast(), "Saved") != nullptr);
     CHECK(a.saveSampleWav());
     waitLoader();
     if (!pre1) {
@@ -1588,7 +1588,7 @@ static void testSaveSampleWav(App& a, bool have_synth)
     // empty layer
     a.selectLayer(3);
     CHECK(!a.saveSampleWav());
-    CHECK(strstr(testhooks::lastToast(), "Brak sampla") != nullptr);
+    CHECK(strstr(testhooks::lastToast(), "No sample") != nullptr);
     a.selectLayer(0);
 
     // An edited sample points at its USER file afterwards: a project save writes no copy.
@@ -1699,7 +1699,7 @@ static void testMidiNotes(App& a)
     halHostMidiSetConnected(false);
     pump(1);
     CHECK(!a.midiConnected());
-    CHECK(strstr(testhooks::lastToast(), "odłączone") != nullptr);
+    CHECK(strstr(testhooks::lastToast(), "unplugged") != nullptr);
 }
 
 static void testMidiTransport(App& a)
@@ -2039,7 +2039,7 @@ static void testMidiLearn(App& a)
         pump(1);
     }
     CHECK(a.midiMapCount() == 32);
-    CHECK(strstr(testhooks::lastToast(), "pełna") != nullptr);
+    CHECK(strstr(testhooks::lastToast(), "map full") != nullptr);
     a.midiLearn(false);
     a.midiClearMap();
     CHECK(a.midiMapCount() == 0);
@@ -2053,7 +2053,7 @@ static void testExitToLauncher(App& a)
 {
     CHECK(!a.hasLauncher());
     CHECK(!a.exitToLauncher());
-    CHECK(strstr(testhooks::lastToast(), "launchera") != nullptr);
+    CHECK(strstr(testhooks::lastToast(), "launcher") != nullptr);
     CHECK(hal::audioRunning());
 
     // launcher present: stop, save (dirty + autosave), restart into it
@@ -2083,7 +2083,7 @@ static void testExitToLauncher(App& a)
     CHECK(a.dirty());
     CHECK(!a.exitToLauncher());
     CHECK(!halHostLauncherRequested());
-    CHECK(strstr(testhooks::lastToast(), "ponownie") != nullptr);
+    CHECK(strstr(testhooks::lastToast(), "tap again") != nullptr);
     CHECK(hal::audioRunning());
     CHECK(a.exitToLauncher());
     CHECK(halHostLauncherRequested());
@@ -2311,7 +2311,7 @@ static void testProjectFiles(App& a, bool have_synth)
     a.renameProject(kOvr);
     CHECK(strcmp(a.project().name, kOvr) == 0 && !a.projectHasFile());
     CHECK(!a.save());
-    CHECK(strstr(testhooks::lastToast(), "istnieje") != nullptr);
+    CHECK(strstr(testhooks::lastToast(), "already exists") != nullptr);
     CHECK(a.save());   // the second SAVE within 3 s overwrites
     waitLoader();
     CHECK(a.projectHasFile() && !a.dirty());
@@ -2372,12 +2372,12 @@ static void testProjectFiles(App& a, bool have_synth)
         waitLoader();
         CHECK(a.saveAs(kPart));
         waitLoader();
-        CHECK(strstr(testhooks::lastToast(), "częściowy") != nullptr);
+        CHECK(strstr(testhooks::lastToast(), "Partly") != nullptr);
         CHECK(a.dirty());
         CHECK(isFile(projFile(kPart)));
         CHECK(a.open(kPart));
         waitLoader();
-        CHECK(strstr(testhooks::lastToast(), "brak sampli: 1") != nullptr);
+        CHECK(strstr(testhooks::lastToast(), "missing samples: 1") != nullptr);
         remove(projFile(kPart).c_str());
         remove(blocker.c_str());
         a.newProject();
@@ -2569,7 +2569,7 @@ static void testEditFixes(App& a, bool have_synth)
     halHostSetMicros(t + 150000000ull);
     pump(1);
     CHECK(!a.midiLearning());
-    CHECK(strstr(testhooks::lastToast(), "aktywno") != nullptr);
+    CHECK(strstr(testhooks::lastToast(), "no activity") != nullptr);
     halHostSetMicros(0);
     a.newProject();
     pump(4);

@@ -277,6 +277,46 @@ void handleLine(const char* line)
         hal::touchInject(nullptr, 0);
         sleepMs(60);
         out("T>ok drag");
+    } else if (!strncmp(line, "key", 3)) {
+        // key [ctrl+][shift+][alt+]<name>: a, space, enter, esc, tab, backspace, delete, up, down, left, right,
+        // f1..f12, release (as the Tab5 Keyboard would send it; the UI tick takes it)
+        const char* s = line + 3;
+        while (*s == ' ') ++s;
+        hal::KeyEvent e = {};
+        for (;;) {
+            if (!strncmp(s, "ctrl+", 5)) e.ctrl = true, s += 5;
+            else if (!strncmp(s, "shift+", 6)) e.shift = true, s += 6;
+            else if (!strncmp(s, "alt+", 4)) e.alt = true, s += 4;
+            else break;
+        }
+        static const char* const kNames[] = {"enter", "esc", "backspace", "delete", "tab", "left", "right", "up",
+                                             "down", "home", "end", "pgup", "pgdn"};
+        static const hal::Key kKeys[] = {hal::Key::Enter, hal::Key::Esc, hal::Key::Backspace, hal::Key::Delete,
+                                         hal::Key::Tab, hal::Key::Left, hal::Key::Right, hal::Key::Up,
+                                         hal::Key::Down, hal::Key::Home, hal::Key::End, hal::Key::PgUp,
+                                         hal::Key::PgDn};
+        bool ok = true;
+        if (!strcmp(s, "release")) e.key = hal::Key::Release;
+        else if (!strcmp(s, "space")) e.key = hal::Key::Char, e.ch = ' ';
+        else if ((s[0] == 'f' || s[0] == 'F') && s[1] >= '1' && s[1] <= '9') {
+            const int n = atoi(s + 1);
+            ok = n >= 1 && n <= 12;
+            e.key = (hal::Key)((int)hal::Key::F1 + n - 1);
+        } else if (s[0] && !s[1]) {
+            e.key = hal::Key::Char;
+            e.ch = e.shift && s[0] >= 'a' && s[0] <= 'z' ? (char)(s[0] - 32) : s[0];
+        } else {
+            ok = false;
+            for (int i = 0; i < (int)(sizeof kNames / sizeof kNames[0]); ++i)
+                if (!strcmp(s, kNames[i])) e.key = kKeys[i], ok = true;
+        }
+        if (!ok) {
+            out("T>err key name: %s", s);
+            return;
+        }
+        hal::kbdInject(e);
+        sleepMs(60);   // (the UI tick takes it)
+        out("T>ok key");
     } else if (!strncmp(line, "shot", 4)) {
         const int n = ints(line + 4, v, 1);
         cmdShot(n ? v[0] : 1);

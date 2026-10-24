@@ -868,7 +868,7 @@ ORBIT_HOT void EngineImpl::renderBass(int n)
     bass_queued_ = false;
     const Project& P = *prj;
     AcidParams ap;
-    ap.tune = clampf(P.g[GP_BASS_TUNE], -12.0f, 12.0f);
+    ap.tune = 0.0f;   // 0.4.6: no TUNE knob any more (the line spans C0..C5); an old project's value is not used
     ap.cutoff = clampf(P.g[GP_BASS_CUTOFF], 0.0f, 1.0f);
     ap.reso = clampf(P.g[GP_BASS_RESO], 0.0f, 1.0f);
     ap.envmod = clampf(P.g[GP_BASS_ENVMOD], 0.0f, 1.0f);

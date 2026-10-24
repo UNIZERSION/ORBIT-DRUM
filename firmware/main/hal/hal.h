@@ -64,6 +64,28 @@ void setTouchExclusive(int x1, int y1, int x2, int y2);
 // the controller's points in the touch task, so they take the real path: TouchHook, LVGL's pointer, the zone.
 void touchInject(const TouchPoint* points, int count);
 
+// ---------------------------------------------------------------- keyboard (M5Stack Tab5 Keyboard, 0.4.6)
+// The keyboard accessory (SKU A164) on the side port: its own I2C bus, HID mode, plugged in or out at any time.
+// kbdStart() (once, at boot) creates the bus and a worker task; nothing is drawn on the screen for it.
+enum class Key : uint8_t {
+    None = 0,
+    Char,        // ch: printable ASCII (US layout, Shift applied), the space included
+    Release,     // keys released (the keyboard reports a release without the key)
+    Enter, Esc, Backspace, Delete, Tab, Left, Right, Up, Down, Home, End, PgUp, PgDn,
+    F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,
+};
+struct KeyEvent {
+    Key key;
+    char ch;             // Key::Char
+    uint8_t usage;       // HID usage ID (0 for Release)
+    bool ctrl, shift, alt;
+    bool repeat;         // sent again by the auto-repeat while a navigation key is held
+};
+void kbdStart();
+bool kbdPresent();                      // a keyboard answered and is in HID mode
+bool kbdGet(KeyEvent& out);             // next event (any task); false when none waits
+void kbdInject(const KeyEvent& e);      // test console / PC tests: as if the keyboard sent it
+
 // ---------------------------------------------------------------- audio out
 // Renders interleaved stereo int16. Called from the audio task (core 1, top priority).
 using RenderFn = void (*)(int16_t* lr, int frames, void* user);

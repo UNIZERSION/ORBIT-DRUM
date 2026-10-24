@@ -69,11 +69,15 @@ struct Settings {
     uint8_t base = 0;                // Display > Base color: ui/theme.h kBases order (0 LIGHT ... kBaseCount - 1)
     uint8_t accent_sat = 0;          // CUSTOM accent saturation kAccentSatMin..100 %; 0 = never set (default)
     uint16_t accent_hue = 0;         // CUSTOM accent hue 0..359 degrees
+    // ---- 0.4.6, after the 80-byte payload of 0.3.2 .. 0.4.5 settings files (they keep these defaults)
+    uint8_t ui_size = 0;             // Display > Interface size: 0 standard, 1 large, 2 extra large (dialogs, targets)
+    uint8_t reserved_pad3[3] = {};
 };
 static_assert(offsetof(Settings, bt_enabled) == 36, "bt_* after the 36-byte payload of older settings files");
 static_assert(offsetof(Settings, vol_speaker) == 40, "0.3 fields after the 40-byte payload of 0.2.x settings files");
 static_assert(offsetof(Settings, base) == 76, "colour fields after the 76-byte payload of 0.3.0 / 0.3.1 settings files");
-static_assert(sizeof(Settings) == 80, "no tail padding: every saved byte is a field");
+static_assert(offsetof(Settings, ui_size) == 80, "0.4.6 fields after the 80-byte payload of older settings files");
+static_assert(sizeof(Settings) == 84, "no tail padding: every saved byte is a field");
 
 // Display colours (the UI side lives in ui/theme.h, which checks these against its tables).
 constexpr int kBaseCount = 6;            // base palettes: LIGHT WARM SILVER SLATE DARK BLACK

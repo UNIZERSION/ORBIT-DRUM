@@ -116,7 +116,7 @@ bool confirmDiscard(const char* key)
     }
     copyText(d.pending, sizeof d.pending, key);
     d.pending_ms = lv_tick_get();
-    app().toast("Dotknij ponownie, aby porzucić zmiany");
+    app().toast("Tap again to discard the changes");
     return false;
 }
 
@@ -128,7 +128,7 @@ void onEntry(lv_event_t* e)
     copyText(name, sizeof name, g_names[i]);
     if (!confirmDiscard(name)) return;
     if (app().open(name)) modalClose();
-    else app().toast("Nie można otworzyć projektu");
+    else app().toast("Cannot open the project");
 }
 
 void update(bool force);
@@ -147,7 +147,7 @@ void onDelete(lv_event_t* e)
     if (strcmp(d.pending, key) != 0 || lv_tick_elaps(d.pending_ms) >= kConfirmMs) {
         copyText(d.pending, sizeof d.pending, key);
         d.pending_ms = lv_tick_get();
-        app().toast("Dotknij DELETE ponownie, aby usunąć %s", name);
+        app().toast("Tap DELETE again to delete %s", name);
         return;
     }
     d.pending[0] = 0;
@@ -175,8 +175,8 @@ void rebuildList()
     d.count = 0;
     if (!app().sdReady()) {
         lv_obj_t* l = label(d.entries,
-                            "Brak karty SD. Projekty zapisują się w /sdcard/ORBIT/PROJECTS/ \xE2\x80\x94 włóż kartę "
-                            "(FAT32 lub exFAT), aby zapisywać i otwierać projekty. Bieżący projekt działa dalej.",
+                            "No SD card. Projects are saved in /sdcard/ORBIT/PROJECTS/ \xE2\x80\x94 insert a card "
+                            "(FAT32 or exFAT) to save and open projects. The current project keeps working.",
                             f_r14, col::muted);
         lv_obj_set_width(l, LV_PCT(100));
         lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_WRAP);
@@ -196,7 +196,7 @@ void rebuildList()
         ++d.count;
     }
     if (d.count == 0) {
-        lv_obj_t* l = label(d.entries, "Brak innych zapisanych projektów w /sdcard/ORBIT/PROJECTS/", f_r14, col::muted);
+        lv_obj_t* l = label(d.entries, "No other saved projects in /sdcard/ORBIT/PROJECTS/", f_r14, col::muted);
         lv_obj_set_style_pad_ver(l, 8, 0);
         return;
     }
@@ -232,6 +232,7 @@ void update(bool force)
         d.rev_project = r.project;
         updateCard();
         rebuildList();
+        modalScaleKids(d.entries, 0);   // a larger dialog (Interface size): new rows at its scale
     } else if (r.transport != d.rev_transport) {
         updateCard();   // tempo
     }
@@ -299,7 +300,7 @@ void open()
     lv_obj_set_style_pad_row(text, 4, 0);
     d.name = label(text, "", f_s15, col::ink);
     d.info = label(text, "", f_r13, col::muted);
-    d.dirty = label(card, "\xE2\x97\x8F niezapisane zmiany", f_r13, col::accent_dark);
+    d.dirty = label(card, "\xE2\x97\x8F unsaved changes", f_r13, col::accent_dark);
     lv_obj_add_flag(d.dirty, LV_OBJ_FLAG_HIDDEN);
     label(card, "ACTIVE", f_m12, col::accent);
     d.card_del = actionBtn(card, "DELETE", false, 0, 32);
@@ -327,6 +328,7 @@ void open()
     }
 
     update(true);
+    modalScale(modalScaleFor(1.0f));   // Display > Interface size
     d.timer = lv_timer_create(onTimer, 250, nullptr);
 }
 

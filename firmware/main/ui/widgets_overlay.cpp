@@ -15,6 +15,8 @@ struct Modal {
     lv_obj_t* body;
     lv_obj_t* footer;
     int min_h, max_h;
+    int w;          // design width
+    float scale;    // modalScale() (1 = design size)
     void (*on_close)(void*);
     void* user;
 };
@@ -167,6 +169,8 @@ lv_obj_t* modalOpen(const char* title, int w, int min_h, int max_h)
     if (!m) return nullptr;
     memset(m, 0, sizeof *m);
     m->min_h = min_h;
+    m->w = w;
+    m->scale = 1.0f;
     m->max_h = max_h;
     m->scrim = wk::overlayCreate(0);
     lv_obj_set_style_bg_color(m->scrim, c(col::scrim), 0);
@@ -258,6 +262,72 @@ void modalClose()
 }
 
 bool modalIsOpen() { return s_modal != nullptr; }
+
+// ---- 0.4.6: dialogs built larger (the settings always; every dialog with Display > Interface size)
+float uiSizeFactor()
+{
+    static const float kF[3] = {1.0f, 1.15f, 1.3f};
+    const int i = app().settings().ui_size;
+    return kF[i >= 0 && i < 3 ? i : 0];
+}
+
+float modalScaleFor(float base) { return base * uiSizeFactor(); }
+
+void modalScale(float k)
+{
+    Modal* m = s_modal;
+    if (!m || m->scale > 1.0f) return;
+    const float kmax = 1264.0f / (float)(m->w > 0 ? m->w : 824);   // the window stays on the screen
+    if (k > kmax) k = kmax;
+    if (k <= 1.001f) return;
+    UiScale s;
+    s.sx = s.sy = s.f = k;
+    uiScaleRegister(m->win, s);   // hit boxes and custom draws of the dialog follow the scale
+    uiScaleTree(m->win, s);
+    m->scale = k;
+    // the height stays within the screen; the body scrolls
+    const int top = 704;
+    const int hi = (int)((float)m->max_h * k) < top ? (int)((float)m->max_h * k) : top;
+    const int lo = (int)((float)m->min_h * k) < hi ? (int)((float)m->min_h * k) : hi;
+    lv_obj_set_style_max_height(m->win, hi, 0);
+    lv_obj_set_style_min_height(m->win, lo, 0);
+    const int chrome = (int)((float)(kHeadH + (m->footer ? kFootH : 0)) * k) + 2;
+    lv_obj_set_style_max_height(m->body, hi - chrome > 0 ? hi - chrome : 0, 0);
+    lv_obj_set_style_min_height(m->body, lo - chrome > 0 ? lo - chrome : 0, 0);
+    lv_obj_center(m->win);
+}
+
+float modalScaleOf() { return s_modal ? s_modal->scale : 1.0f; }
+
+int modalMaxHeight() { return s_modal ? (int)lv_obj_get_style_max_height(s_modal->win, 0) : 0; }
+
+void modalScaleKids(lv_obj_t* parent, int from)
+{
+    Modal* m = s_modal;
+    if (!m || m->scale <= 1.0f || !parent) return;
+    UiScale s;
+    s.sx = s.sy = s.f = m->scale;
+    const int n = (int)lv_obj_get_child_count(parent);
+    for (int i = from < 0 ? 0 : from; i < n; ++i) uiScaleTree(lv_obj_get_child(parent, i), s);
+}
+
+bool overlayEscape()
+{
+    if (s_modal) {
+        modalClose();
+        return true;
+    }
+    // the topmost popup / list: a tap on its catcher closes it
+    lv_obj_t* top = lv_layer_top();
+    for (int32_t i = top ? (int32_t)lv_obj_get_child_count(top) - 1 : -1; i >= 0; --i) {
+        lv_obj_t* ch = lv_obj_get_child(top, i);
+        if (lv_obj_has_flag(ch, LV_OBJ_FLAG_CLICKABLE) && !lv_obj_has_flag(ch, LV_OBJ_FLAG_HIDDEN)) {
+            lv_obj_send_event(ch, LV_EVENT_CLICKED, nullptr);
+            return true;
+        }
+    }
+    return false;
+}
 
 bool overlayOpen()
 {

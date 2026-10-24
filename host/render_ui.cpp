@@ -354,7 +354,7 @@ static void seedProjects()
     App& a = app();
     for (const char* n : {"NEON_DRAFT", "LIVE_SESSION_02", "EMPTY_PROJECT", "ORBIT_01"}) {
         bool ok = false;
-        for (int i = 0; i < 100 && !(ok = a.saveAs(n)); ++i) runAudio(20);   // "Zapis w toku": wait
+        for (int i = 0; i < 100 && !(ok = a.saveAs(n)); ++i) runAudio(20);   // "Saving in progress": wait
         CHECK(ok, "saveAs %s", n);
         for (int i = 0; i < 200 && a.loadingCount() > 0; ++i) runAudio(20);
         runAudio(100);
@@ -572,6 +572,76 @@ static void shotsColors()
     runAudio(3500);   // toasts fade
 }
 
+// 0.4.6 Settings > Display > Interface size: the list, APPLY -> restart prompt, then every dialog and list larger
+// (settings x1.25 x1.3, capped at the screen width), larger touch areas for widgets made from then on.
+static void shotsUiSize()
+{
+    App& a = app();
+    printf("interface size (Settings > Display)\n");
+    lvhost_tap(1020 + 15, 31);
+    runAudio(400);
+    CHECK(modalIsOpen() && tapLabel("Display", kAll, false, 350), "settings > Display");
+    CHECK(modalScaleOf() > 1.24f && modalScaleOf() < 1.26f, "settings drawn x1.25 (%.3f)", modalScaleOf());
+    lv_obj_t* sel = rowControl("Interface size");
+    CHECK(sel != nullptr, "Interface size select");
+    if (!sel) {
+        closeOverlays();
+        return;
+    }
+    tapObj(sel, 250);
+    CHECK(overlayOpen() && findLabel("Extra large"), "size list open");
+    if (lv_obj_t* l = findLabel("Extra large")) {
+        lv_area_t r;
+        lv_obj_get_coords(lv_obj_get_parent(l), &r);
+        CHECK(lv_area_get_height(&r) >= 44, "list rows as large as the dialog (%d px)", (int)lv_area_get_height(&r));
+    }
+    shot("popup-settings-size");
+    CHECK(tapLabel("Extra large", kAll, false, 250), "pick Extra large");
+    CHECK(a.settingsEdit().ui_size == 2, "edit copy ui_size 2 (%d)", a.settingsEdit().ui_size);
+    CHECK(a.settings().ui_size == 0, "not active before APPLY");
+    CHECK(tapLabel("APPLY", kAll, false, 500), "APPLY");
+    CHECK(a.settings().ui_size == 2, "ui_size saved");
+    CHECK(modalIsOpen() && findLabel("INTERFACE SIZE") && findLabel("RESTART NOW"), "restart prompt (interface size)");
+    CHECK(modalScaleOf() > 1.29f, "the prompt itself is larger (%.3f)", modalScaleOf());
+    shot("modal-uisize");
+    CHECK(tapLabel("LATER", kAll, false, 400), "LATER");
+    CHECK(hitBonus() == 8, "touch bonus 8 px (%d)", hitBonus());
+    // the settings again: as wide as the screen allows
+    lvhost_tap(1020 + 15, 31);
+    runAudio(400);
+    CHECK(modalIsOpen(), "settings open (XL)");
+    const float kmax = 1264.0f / 824.0f;
+    CHECK(modalScaleOf() > kmax - 0.01f && modalScaleOf() < kmax + 0.01f, "settings XL capped (%.3f)", modalScaleOf());
+    if (lv_obj_t* l = findLabel("SETTINGS / TAB5")) {
+        lv_obj_t* win = lv_obj_get_parent(lv_obj_get_parent(l));
+        lv_area_t w;
+        lv_obj_get_coords(win, &w);
+        CHECK(w.x1 >= 0 && w.x2 <= 1279 && w.y1 >= 0 && w.y2 <= 719, "XL window on the screen (%d,%d-%d,%d)", (int)w.x1,
+              (int)w.y1, (int)w.x2, (int)w.y2);
+    }
+    shot("modal-settings-xl");
+    CHECK(tapLabel("Touch", kAll, false, 350), "Touch tab (built at XL)");
+    shot("modal-settings-xl-touch");
+    // no edits: X closes it at once
+    closeOverlays();
+    lvhost_tap(978 + 15, 31);
+    runAudio(400);
+    CHECK(modalIsOpen() && modalScaleOf() > 1.29f, "project manager x1.3 (%.3f)", modalScaleOf());
+    shot("modal-project-xl");
+    closeOverlays();
+    lvhost_tap(1227 + 16, 30);
+    runAudio(400);
+    CHECK(modalIsOpen() && modalScaleOf() > 1.29f, "UI guide x1.3");
+    shot("modal-help-xl");
+    closeOverlays();
+    Settings& e = a.settingsEdit();
+    e.ui_size = 0;
+    a.applySettings();
+    CHECK(hitBonus() == 0 && uiSizeFactor() == 1.0f, "Standard again");
+    a.ui().settings_tab = 0;
+    runAudio(3500);
+}
+
 static void shotsExtras()
 {
     App& a = app();
@@ -607,7 +677,7 @@ static void shotsExtras()
     CHECK(a.project().song.follow == 1, "follow on");
     nav(View::Sequence);
     a.play();
-    runAudio(2600);   // slot 0 (A) -> slot 1
+    runAudio(4800);   // slot 0 (A, 2 bars at 111 BPM = 4.3 s) -> slot 1
     CHECK(a.playing() && a.songSlot() >= 1, "song slot %d", a.songSlot());
     shot("song-follow");
     a.stop();
@@ -634,7 +704,7 @@ static void shotsBluetooth()
     lv_obj_t* chip = findLabel("BT", false, top);
     CHECK(chip != nullptr && !lv_obj_has_state(lv_obj_get_parent(chip), LV_STATE_CHECKED),
           "dim BT chip while no device is connected");
-    runAudio(2800);   // the "Bluetooth włączony" toast fades
+    runAudio(2800);   // the "Bluetooth on" toast fades
     shot("bt-chip-waiting");
     halHostBtAdvance(300);
     halHostBtFeed("READY version=0.9.5 cap_airpods=1");
@@ -868,6 +938,30 @@ static void smokeMaximize()
         runAudio(60);
     }
     CHECK(panelMaxed() == Panel::Count, "all restored");
+    // 0.4.6: a category of the maximized BROWSER panel opens the BROWSER view maximized at once
+    {
+        const Category cat0 = a.ui().category;
+        panelToggleMax(Panel::Browser);
+        runAudio(100);
+        CHECK(panelMaxed() == Panel::Browser, "BROWSER panel maximized");
+        CHECK(tapLabel("Drums", kAll, false, 200), "Drums in the maximized panel");
+        CHECK(panelMaxed() == Panel::Work && a.ui().view == View::Browser && a.ui().category == Category::Drums,
+              "Drums opens the BROWSER view maximized (max %d view %d cat %d)", (int)panelMaxed(), (int)a.ui().view,
+              (int)a.ui().category);
+        shot("max-browser-drums");
+        // the category list next to the search switches the category without leaving the large view
+        const Box catBox = {540, 95, 800, 160};
+        CHECK(tapLabel("Drums", catBox, false, 250), "category list shows Drums");
+        CHECK(overlayOpen() && tapLabel("Bass", kAll, false, 250), "pick Bass from the list");
+        CHECK(a.ui().category == Category::Bass && panelMaxed() == Panel::Work, "Bass in the large view (cat %d)",
+              (int)a.ui().category);
+        CHECK(findLabel("Bass", false, catBox) != nullptr, "category list shows Bass");
+        panelToggleMax(Panel::Work);
+        runAudio(60);
+        CHECK(panelMaxed() == Panel::Count, "restored after Drums");
+        a.setCategory(cat0);
+        nav(View::Sequence);
+    }
 }
 
 // 0.4.2: BASS KEYS. The head's KEYS toggle swaps the line / step row / step keyboard for a row (OCT - / +, ACCENT,
@@ -952,8 +1046,14 @@ static void smokeBassKeys()
     CHECK(tapLabel("OCT +", row) && findLabel("C3 \xE2\x80\x93 C5", false, row) != nullptr, "OCT + -> C3 - C5");
     CHECK(tapLabel("OCT -", row) && tapLabel("OCT -", row) && findLabel("C1 \xE2\x80\x93 C3", false, row) != nullptr,
           "OCT - twice -> C1 - C3");
-    CHECK(tapLabel("OCT -", row) && findLabel("C1 \xE2\x80\x93 C3", false, row) != nullptr, "C1 is the lowest");
-    CHECK(tapLabel("OCT +", row) && findLabel("C2 \xE2\x80\x93 C4", false, row) != nullptr, "back to C2 - C4");
+    // 0.4.6: an octave more each way: C0 .. C5 for the lowest key
+    CHECK(tapLabel("OCT -", row) && findLabel("C0 \xE2\x80\x93 C2", false, row) != nullptr, "OCT - -> C0 - C2");
+    CHECK(tapLabel("OCT -", row) && findLabel("C0 \xE2\x80\x93 C2", false, row) != nullptr, "C0 is the lowest");
+    for (int i = 0; i < 6; ++i) tapLabel("OCT +", row);
+    CHECK(findLabel("C5 \xE2\x80\x93 C7", false, row) != nullptr, "C5 is the highest");
+    CHECK(a.bassStep(0).note >= kBassNoteMin && kBassNoteMin == -24 && kBassNoteMax == 36, "line range C0..C5");
+    for (int i = 0; i < 3; ++i) tapLabel("OCT -", row);
+    CHECK(findLabel("C2 \xE2\x80\x93 C4", false, row) != nullptr, "back to C2 - C4");
     // the line plays on (its note lights its key)
     a.togglePlay();
     runAudio(260);
@@ -1024,6 +1124,141 @@ static void smokeBassKeys()
 
 // 0.4.4: the test console's commands (tools/device_test.py drives the Tab5 with them): ping / state / tap through
 // the touch path (here the hook directly: no touch task on the PC).
+// 0.4.6: the Tab5 Keyboard with Ableton Live's shortcuts (keys injected as the keyboard driver would queue them)
+static hal::KeyEvent keyEv(hal::Key k, char ch = 0, bool ctrl = false, bool shift = false, bool alt = false)
+{
+    hal::KeyEvent e = {};
+    e.key = k;
+    e.ch = ch;
+    e.ctrl = ctrl;
+    e.shift = shift;
+    e.alt = alt;
+    return e;
+}
+static void key(const hal::KeyEvent& e, int ms = 80)
+{
+    hal::kbdInject(e);
+    runAudio(ms);
+}
+static void keyChar(char c, bool ctrl = false, bool shift = false, bool alt = false)
+{
+    key(keyEv(hal::Key::Char, c, ctrl, shift, alt));
+}
+
+static char g_typed[64];
+static void typedCb(const char* t, void*) { snprintf(g_typed, sizeof g_typed, "%s", t); }
+
+static void smokeKeyboard()
+{
+    App& a = app();
+    printf("smoke: Tab5 Keyboard (Ableton shortcuts)\n");
+    nav(View::Sequence);
+    // Tab / Shift+Tab: the views in tab order
+    key(keyEv(hal::Key::Tab), 300);
+    CHECK(a.ui().view == View::Bass, "Tab: SEQUENCE -> BASS (%d)", (int)a.ui().view);
+    key(keyEv(hal::Key::Tab, 0, false, true), 300);
+    CHECK(a.ui().view == View::Sequence, "Shift+Tab: back to SEQUENCE");
+    // Space: play from the start / stop
+    keyChar(' ');
+    CHECK(a.playing(), "Space plays");
+    keyChar(' ');
+    CHECK(!a.playing(), "Space stops");
+    // note keys: A = pad 1, W = pad 2 (computer MIDI keyboard)
+    a.engine().telemetry().pad_hits.store(0);
+    hal::kbdInject(keyEv(hal::Key::Char, 'w'));
+    runAudio(10);
+    halHostRenderAudio(128, g_audio);
+    CHECK(a.engine().telemetry().pad_hits.load() & (1u << 1), "W plays pad 2");
+    key(keyEv(hal::Key::Release));
+    // C / V velocity, M off: W no longer plays
+    keyChar('m');
+    a.engine().telemetry().pad_hits.store(0);
+    keyChar('w');
+    halHostRenderAudio(128, g_audio);
+    CHECK(!(a.engine().telemetry().pad_hits.load() & (1u << 1)), "M: note keys off");
+    keyChar('m');
+    // in BASS the note keys play the bass; Z / X move the range
+    nav(View::Bass);
+    const uint32_t n0 = a.bassNotes();
+    keyChar('a');
+    keyChar('d');   // a second key while A is held (no release between): slides
+    key(keyEv(hal::Key::Release));
+    CHECK(a.bassNotes() == n0 + 2, "BASS: A, D play two notes (%u)", (unsigned)(a.bassNotes() - n0));
+    const int b0 = view_bass::liveBase();
+    keyChar('x');
+    CHECK(view_bass::liveBase() == b0 + 12, "X: octave up");
+    keyChar('z');
+    CHECK(view_bass::liveBase() == b0, "Z: octave down");
+    // Up / Down: scenes
+    nav(View::Sequence);
+    key(keyEv(hal::Key::Down), 200);
+    CHECK(a.project().scene == 1, "Down: scene B");
+    key(keyEv(hal::Key::Up), 200);
+    CHECK(a.project().scene == 0, "Up: scene A");
+    // Left / Right: pads; F1: mute pad 1 of the bank; 0: mute the selected pad
+    key(keyEv(hal::Key::Right));
+    CHECK(a.ui().pad == 1, "Right: pad 2");
+    key(keyEv(hal::Key::Left));
+    CHECK(a.ui().pad == 0, "Left: pad 1");
+    const int m0 = a.project().pad[0].mute;
+    key(keyEv(hal::Key::F1));
+    CHECK(a.project().pad[0].mute != m0, "F1 mutes pad 1");
+    keyChar('0');
+    CHECK(a.project().pad[0].mute == m0, "0 toggles the selected pad back");
+    // Ctrl+, settings; Esc closes
+    keyChar(',', true);
+    runAudio(300);
+    CHECK(modalIsOpen(), "Ctrl+, opens the settings");
+    key(keyEv(hal::Key::Esc), 300);
+    CHECK(!modalIsOpen(), "Esc closes them");
+    // F11 / Esc: the work area maximized and back
+    key(keyEv(hal::Key::F11), 200);
+    CHECK(panelMaxed() == Panel::Work, "F11 maximizes the work area");
+    key(keyEv(hal::Key::Esc), 200);
+    CHECK(panelMaxed() == Panel::Count, "Esc brings it back");
+    // typing into the on-screen keyboard
+    g_typed[0] = 0;
+    keyboardOpen("TEST", "", 20, typedCb, nullptr);
+    runAudio(100);
+    keyChar('a');
+    keyChar('B', false, true);
+    keyChar('c');
+    key(keyEv(hal::Key::Backspace));
+    key(keyEv(hal::Key::Enter), 200);
+    CHECK(!strcmp(g_typed, "aB"), "typing: a, B, c, Backspace, Enter -> \"%s\"", g_typed);
+    CHECK(!overlayOpen(), "the on-screen keyboard closed");
+}
+
+// 0.4.6: the top bar's touch targets reach the top edge and split the gaps (PLAY 1153..1188, REC 1193..1228)
+static void smokeTopBar()
+{
+    App& a = app();
+    printf("smoke: top bar touch targets\n");
+    nav(View::Sequence);
+    lvhost_tap(navX((int)View::Sample), 1);   // the very top of the screen above the SAMPLE tab
+    runAudio(300);
+    CHECK(a.ui().view == View::Sample, "tab tapped at y 1");
+    nav(View::Sequence);
+    const bool rec0 = a.recording();
+    lvhost_tap(1190, 3);   // in the gap, PLAY's half, near the top
+    runAudio(120);
+    CHECK(a.playing() && a.recording() == rec0, "x 1190: PLAY, not REC");
+    lvhost_tap(1190, 58);
+    runAudio(120);
+    CHECK(!a.playing(), "x 1190, y 58: PLAY again (stop)");
+    lvhost_tap(1192, 30);   // REC's half of the gap
+    runAudio(120);
+    CHECK(a.recording() != rec0 && !a.playing(), "x 1192: REC");
+    lvhost_tap(1192, 30);
+    runAudio(120);
+    CHECK(a.recording() == rec0, "REC off again");
+    // a finger that slides a little while pressing still taps
+    lvhost_drag(1020 + 15, 31, 1020 + 15 + 14, 31 + 12, 120);
+    runAudio(400);
+    CHECK(modalIsOpen(), "settings open after a sliding tap on the gear");
+    closeOverlays();
+}
+
 static void smokeConsole()
 {
     App& a = app();
@@ -1360,6 +1595,7 @@ int main()
     shotsOtherViews();
     shotsDialogs();
     shotsColors();
+    shotsUiSize();
     shotsExtras();
     shotsBluetooth();
 
@@ -1370,6 +1606,8 @@ int main()
     smokeMaximize();
     smokeBassKeys();
     smokeConsole();
+    smokeKeyboard();
+    smokeTopBar();
     smokeDialogs();
     smokeBrowser();
     smokeScenes();

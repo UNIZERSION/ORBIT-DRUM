@@ -513,17 +513,17 @@ const char* wavErrorText(WavError e)
 {
     switch (e) {
     case WavError::Ok: return "OK";
-    case WavError::Open: return "Nie można otworzyć pliku";
-    case WavError::NotRiff: return "To nie jest plik WAV";
-    case WavError::NotWave: return "Plik RIFF bez danych WAVE";
-    case WavError::NoFmt: return "Brak nagłówka formatu";
-    case WavError::NoData: return "Brak danych audio";
-    case WavError::Unsupported: return "Nieobsługiwany format";
-    case WavError::TooLarge: return "Plik jest za duży";
-    case WavError::NoMemory: return "Brak pamięci";
-    case WavError::Io: return "Błąd odczytu/zapisu karty";
+    case WavError::Open: return "Cannot open the file";
+    case WavError::NotRiff: return "Not a WAV file";
+    case WavError::NotWave: return "RIFF file without WAVE data";
+    case WavError::NoFmt: return "No format header";
+    case WavError::NoData: return "No audio data";
+    case WavError::Unsupported: return "Unsupported format";
+    case WavError::TooLarge: return "File too large";
+    case WavError::NoMemory: return "Out of memory";
+    case WavError::Io: return "SD card read/write error";
     }
-    return "Nieznany błąd";
+    return "Unknown error";
 }
 
 WavError wavProbe(const char* path, WavInfo& info)

@@ -494,7 +494,7 @@ static void browserTests()
     const int total = app().resultCount();
     CHECK(total >= kTakes + 10, "All Samples lists %d entries (want >= %d)", total, kTakes + 10);
     CHECK(findLabel("SUB_BASS_C2.wav") != nullptr, "first file row visible");
-    CHECK(findLabel("Wybierz plik z listy") != nullptr, "preview hint without a selection");
+    CHECK(findLabel("Pick a file from the list") != nullptr, "preview hint without a selection");
 
     const int kick = posOf("KICK_01");
     CHECK(kick >= 0 && kick < 8, "KICK_01 at list position %d", kick);
@@ -557,7 +557,7 @@ static void browserTests()
     settle(100);
     CHECK(app().ui().view == View::Browser && strcmp(app().padSampleName(1), a2) == 0,
           "first LOAD & EDIT tap over %s only warns (view %d, pad A2 = %s)", a2, (int)app().ui().view, app().padSampleName(1));
-    CHECK(findLabel("A2 gra ", true) != nullptr, "the warning names the sample that would be replaced");
+    CHECK(findLabel("A2 plays ", true) != nullptr, "the warning names the sample that would be replaced");
     tapLabel("LOAD & EDIT A2");
     CHECK(waitIdle(), "load-and-edit load finished");
     CHECK(app().ui().view == View::Sample, "second LOAD & EDIT tap switches to the SAMPLE view");
@@ -706,8 +706,8 @@ static void browserTests()
     CHECK(findLabel("KICK_01.wav") != nullptr && findLabel("SUB_BASS_C2.wav") == nullptr, "list filtered");
     settle(2600);
     shot("browser_search");
-    // Clear button.
-    lvhost_tap(756, 115);
+    // Clear button (0.4.6: left of the category list, 136 + 8 px narrower search).
+    lvhost_tap(756 - 144, 115);
     settle(200);
     CHECK(app().ui().search[0] == 0 && app().resultCount() == total, "clear button resets the search (%d)", app().resultCount());
     // focusSearch() (magnifier of the BROWSER panel) opens the keyboard directly.
@@ -720,7 +720,7 @@ static void browserTests()
     // No results message.
     app().setSearch("zzzz");
     settle(100);
-    CHECK(findLabel("Brak wyników dla", true) != nullptr, "empty result message");
+    CHECK(findLabel("No results for", true) != nullptr, "empty result message");
     app().setSearch("");
     settle(100);
 }
@@ -748,7 +748,7 @@ static void settingsTests()
     lvhost_tap(100, 600);
     settle(200);
     CHECK(modalIsOpen() && app().settingsEdit().autosave != before.autosave, "scrim tap keeps the dialog and the edits");
-    CHECK(findLabel("Niezapisane ustawienia", true) != nullptr, "scrim tap explains APPLY / X");
+    CHECK(findLabel("Unsaved settings", true) != nullptr, "scrim tap explains APPLY / X");
     // Project name via keyboard.
     tapObj(rowControl("Project name"));
     settle(300);
@@ -780,12 +780,12 @@ static void settingsTests()
             CHECK(app().settingsEdit().buffer_frames == 128, "buffer 128 in the edit copy");
         }
         if (i == 1) {
-            CHECK(findLabel("Brak urządzenia") != nullptr, "MIDI status line (no device on the PC)");
+            CHECK(findLabel("No device") != nullptr, "MIDI status line (no device on the PC)");
         }
         if (i == 2) {   // Bluetooth, off: the switch, the status and the empty list say so
-            CHECK(findLabel("Moduł Pico z Aurory, złącze M5-Bus") != nullptr, "Bluetooth switch row");
-            CHECK(findLabel("Wyłączony") != nullptr, "module status: off");
-            CHECK(findLabel("Włącz Bluetooth, aby zobaczyć zapisane urządzenia") != nullptr, "device list: off");
+            CHECK(findLabel("Pico module from the Aurora, M5-Bus connector") != nullptr, "Bluetooth switch row");
+            CHECK(findLabel("Off") != nullptr, "module status: off");
+            CHECK(findLabel("Turn on Bluetooth to see the saved devices") != nullptr, "device list: off");
             CHECK(findLabel("AirPods") == nullptr, "no AirPods row without AirPods");
         }
         if (i == 3) {
@@ -814,8 +814,8 @@ static void settingsTests()
         }
         if (i == 6) {
             settle(600);
-            CHECK(findLabel("CPU audio", true) != nullptr, "live CPU / voices line");
-            CHECK(findLabel("Wolna pamięć", true) != nullptr, "live memory line");
+            CHECK(findLabel("Audio CPU", true) != nullptr, "live CPU / voices line");
+            CHECK(findLabel("Free memory", true) != nullptr, "live memory line");
             CHECK(findLabel("PC host (no Tab5 hardware)") != nullptr, "board info line");
         }
         settle(400);
@@ -901,7 +901,7 @@ static void settingsTests()
         tapObj(x);
         settle(200);
         CHECK(modalIsOpen() && halHostBrightness() != bright, "first X tap with unsaved edits keeps the dialog");
-        CHECK(findLabel("Niezapisane ustawienia", true) != nullptr, "X explains the second tap");
+        CHECK(findLabel("Unsaved settings", true) != nullptr, "X explains the second tap");
         tapObj(x);
         settle(300);
     }
@@ -936,11 +936,11 @@ static void settingsTests()
         tapLabel("APPLY");
         settle(200);
         CHECK(modalIsOpen() && strcmp(app().project().name, "MY_SET") == 0, "first APPLY with a taken name only warns");
-        CHECK(findLabel("Projekt taken_set już istnieje", true) != nullptr, "the warning stays visible");
+        CHECK(findLabel("Project taken_set already exists", true) != nullptr, "the warning stays visible");
         tapLabel("APPLY");
         settle(200);
         CHECK(!modalIsOpen() && strcmp(app().project().name, "taken_set") == 0, "second APPLY renames (%s)", app().project().name);
-        CHECK(findLabel("Zapisano ustawienia \xE2\x80\x94 SAVE nadpisze projekt taken_set") != nullptr,
+        CHECK(findLabel("Settings saved \xE2\x80\x94 SAVE will overwrite project taken_set") != nullptr,
               "after APPLY the toast still names the overwrite");
         app().renameProject("MY_SET");
         std::error_code ec;
@@ -1032,13 +1032,13 @@ static void bluetoothTests()
     settle(400);
     CHECK(modalIsOpen() && app().ui().settings_tab == dlg_settings::kTabBluetooth, "openAt opens the Bluetooth tab (%d)",
           app().ui().settings_tab);
-    lv_obj_t* sw = rowControlByNote("Moduł Pico z Aurory, złącze M5-Bus");
+    lv_obj_t* sw = rowControlByNote("Pico module from the Aurora, M5-Bus connector");
     CHECK(sw != nullptr, "Bluetooth switch found");
     tapObj(sw);
     settle(200);
     CHECK(app().btEnabled() && app().engine().sampleRate() == 44100, "switch on: Bluetooth on, engine at 44.1 kHz (%d)",
           app().engine().sampleRate());
-    CHECK(findLabel("szukam modułu\xE2\x80\xA6") != nullptr, "module status while the Pico has not answered");
+    CHECK(findLabel("looking for the module\xE2\x80\xA6") != nullptr, "module status while the Pico has not answered");
     halHostBtAdvance(500);
     btSent();
 
@@ -1056,15 +1056,15 @@ static void bluetoothTests()
     CHECK(st.module && st.connected && strcmp(st.version, "0.9.5") == 0, "status: module %d connected %d version %s",
           st.module, st.connected, st.version);
     CHECK(app().btDeviceCount() == 3, "three devices (%d)", app().btDeviceCount());
-    CHECK(findLabel("Pico 0.9.5 \xC2\xB7 połączono: ", true) != nullptr, "module status: connected");
+    CHECK(findLabel("Pico 0.9.5 \xC2\xB7 connected: ", true) != nullptr, "module status: connected");
     CHECK(findLabel("AirPods Pro") && findLabel("JBL Flip 6") && findLabel("WH-1000XM4"), "device rows");
     CHECK(findLabel("CONNECTED") && findLabel("SAVED"), "device tags");
-    CHECK(findLabel("AirPods") != nullptr && findLabel("L 80 % \xC2\xB7 R 75 % \xC2\xB7 etui 40 %", true) != nullptr,
+    CHECK(findLabel("AirPods") != nullptr && findLabel("L 80 % \xC2\xB7 R 75 % \xC2\xB7 case 40 %", true) != nullptr,
           "AirPods row with the batteries");
     settle(2700);   // the connect toast fades
     shot("dlg_settings_bluetooth");
     // The lower half of the section (output, volume, AirPods, latency note).
-    if (lv_obj_t* note = findLabel("Bluetooth dodaje ok.", true)) {
+    if (lv_obj_t* note = findLabel("Bluetooth adds about", true)) {
         lv_obj_scroll_to_view_recursive(note, LV_ANIM_OFF);
         settle(100);
         shot("dlg_settings_bluetooth_end");
@@ -1077,7 +1077,7 @@ static void bluetoothTests()
     settle(100);
     std::string sent = btSent();
     CHECK(sent.find("SELECTMAC 00:42:79:B1:22:EC") != std::string::npos, "row tap -> SELECTMAC (%s)", sent.c_str());
-    tapObj(inView(rowControlByNote("Wyjście: dźwięk także z głośnika lub gniazda 3,5 mm (ok. 0,2 s przed Bluetooth)")));
+    tapObj(inView(rowControlByNote("Output: sound also from the speaker or the 3.5 mm jack (about 0.2 s ahead of Bluetooth)")));
     settle(100);
     CHECK(app().settings().bt_local == 1, "Also speaker / jack on (off by default)");
     tapObj(inView(rowControl("AirPods")));
@@ -1134,8 +1134,8 @@ static void projectTests()
     shot("dlg_project");
     CHECK(findLabel("PROJECT MANAGER") != nullptr, "project manager open");
     CHECK(findLabel("ORBIT_01") != nullptr, "current project card");
-    CHECK(findLabel("16 pads \xE2\x80\xA2 4 scenes \xE2\x80\xA2 120 BPM", true) != nullptr, "card info line");
-    CHECK(findLabel("\xE2\x97\x8F niezapisane zmiany") != nullptr, "dirty marker");
+    CHECK(findLabel("16 pads \xE2\x80\xA2 4 scenes \xE2\x80\xA2 111 BPM", true) != nullptr, "card info line");
+    CHECK(findLabel("\xE2\x97\x8F unsaved changes") != nullptr, "dirty marker");
     CHECK(findLabel("NEON_DRAFT") && findLabel("LIVE_SESSION_02") && findLabel("EMPTY_PROJECT"), "saved projects listed");
 
     // Dirty: first tap warns, second within 3 s opens.
@@ -1157,7 +1157,7 @@ static void projectTests()
     CHECK(waitIdle(), "save finished");
     settle(600);
     CHECK(!app().dirty(), "SAVE clears dirty");
-    CHECK(findLabel("\xE2\x97\x8F niezapisane zmiany") == nullptr, "dirty marker hidden after save");
+    CHECK(findLabel("\xE2\x97\x8F unsaved changes") == nullptr, "dirty marker hidden after save");
     tapLabel("EXPORT JSON");
     CHECK(waitIdle(), "export finished");
     CHECK(fs::exists(g_sd + "/ORBIT/PROJECTS/NEON_DRAFT.json"), "EXPORT JSON wrote NEON_DRAFT.json");
@@ -1182,7 +1182,7 @@ static void helpTests()
     shot("dlg_help");
     CHECK(findLabel("1. Pads & velocity") && findLabel("8. Project, SD & settings"), "guide cards");
     {
-        // all eight cards fit the window (nothing hidden below a scroll)
+        // 0.4.6: ten cards (two for the keyboard): the window is as tall as allowed and the body scrolls to card 10
         lv_area_t w = {};
         CHECK(modalBox(&w), "guide window");
         lv_obj_t* top = lv_layer_top();
@@ -1192,8 +1192,9 @@ static void helpTests()
             if (lv_obj_get_child_count(scrim) == 0 || lv_obj_get_width(scrim) < 1280) continue;
             body = lv_obj_get_child(lv_obj_get_child(scrim, 0), 1);
         }
-        CHECK(body && lv_obj_get_scroll_bottom(body) <= 0, "guide fits without scrolling (%d px below)",
-              body ? (int)lv_obj_get_scroll_bottom(body) : -1);
+        CHECK(body && lv_obj_get_scroll_bottom(body) > 0 && lv_obj_get_scroll_bottom(body) < 400,
+              "guide: the last cards below a short scroll (%d px)", body ? (int)lv_obj_get_scroll_bottom(body) : -1);
+        CHECK(findLabel("10. Keyboard: more keys") != nullptr, "keyboard cards");
     }
     modalClose();
     settle(300);
@@ -1206,16 +1207,16 @@ static int runNoSd()
     app().setView(View::Browser);
     settle(300);
     CHECK(!app().sdReady(), "no card");
-    CHECK(findLabel("Brak karty SD \xE2\x80\x94 dostępne są wbudowane zestawy") != nullptr, "no-card notice");
+    CHECK(findLabel("No SD card \xE2\x80\x94 the built-in kits are here") != nullptr, "no-card notice");
     {
         // no search strip without a card: the list (notice first) starts at the top of the panel
         int nx = 0, ny = 0;
-        lv_obj_t* n = findLabel("Brak karty SD \xE2\x80\x94 dostępne są wbudowane zestawy");
+        lv_obj_t* n = findLabel("No SD card \xE2\x80\x94 the built-in kits are here");
         if (n) center(n, nx, ny);
         CHECK(n && ny < 87 + 3 + 43, "notice row at the top of the list (y %d)", ny);
     }
     CHECK(findLabel("808 STYLE \xC2\xB7 wbudowany") && findLabel("909 STYLE \xC2\xB7 wbudowany"), "built-ins listed");
-    CHECK(findLabel("Wybierz zestaw") != nullptr, "preview hint");
+    CHECK(findLabel("Pick a kit") != nullptr, "preview hint");
     tapLabel("909 STYLE \xC2\xB7 wbudowany");   // second built-in below the notice strip
     settle(300);
     CHECK(findLabel("909 STYLE") != nullptr && findLabel("LOAD KIT") != nullptr, "909 built-in selected");
@@ -1228,7 +1229,7 @@ static int runNoSd()
           app().project().pad[0].name);
     dlg_project::open();
     settle(400);
-    CHECK(findLabel("Brak karty SD. Projekty", true) != nullptr, "project manager explains the missing card");
+    CHECK(findLabel("No SD card. Projects", true) != nullptr, "project manager explains the missing card");
     shot("dlg_project_nosd");
     modalClose();
     settle(300);
@@ -1236,7 +1237,7 @@ static int runNoSd()
     settle(300);
     tapLabel("Storage");
     settle(300);
-    CHECK(findLabel("Brak karty SD") != nullptr, "storage tab: no card");
+    CHECK(findLabel("No SD card") != nullptr, "storage tab: no card");
     modalClose();
     settle(300);
     printf("shot_browser_dlg --nosd: %d checks, %d failed -> %s\n", g_checks, g_fails, g_fails ? "FAILED" : "passed");
@@ -1255,7 +1256,7 @@ static int runRepoSd()
     app().setCategory(Category::All);
     settle(300);
     CHECK(app().resultCount() == 0, "repo card: no files in SAMPLES/USER (%d)", app().resultCount());
-    CHECK(findLabel("Brak plików WAV w kategorii All Samples") != nullptr, "empty category message");
+    CHECK(findLabel("No WAV files in All Samples") != nullptr, "empty category message");
     settle(2600);
     shot("browser_repo_all");
     app().setCategory(Category::Kits);

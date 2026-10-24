@@ -54,7 +54,12 @@ namespace view_browser  { lv_obj_t* create(lv_obj_t* work); void refresh(); void
 namespace view_fx       { lv_obj_t* create(lv_obj_t* work); void refresh(); void onShow(); }
 // ACID BASS (0.3). onHide(): another view is shown; touchInput(): [touch task] fingers on the KEYS keyboard.
 namespace view_bass     { lv_obj_t* create(lv_obj_t* work); void refresh(); void onShow(); void onHide();
-                          void touchInput(const hal::TouchPoint* pts, int n); bool keysOn(); }
+                          void touchInput(const hal::TouchPoint* pts, int n); bool keysOn();
+                          int liveBase(); bool liveAccent(); bool liveSlide(); void setLiveBase(int midi); }
+
+// Physical keyboard (0.4.6, keys.cpp): the M5Stack Tab5 Keyboard with Ableton Live's shortcuts. poll(): every UI
+// tick; handle(): one key (the test console and the PC tests inject through hal::kbdInject, then poll).
+namespace keys { void poll(); void handle(const hal::KeyEvent& e); }
 
 // Test console (0.4.4, test_console.cpp): commands from the PC over the USB console (tools/device_test.py).
 // start(): its task, after the UI is built; handleLine(): one command (also from host tests).

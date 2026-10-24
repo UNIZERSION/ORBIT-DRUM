@@ -46,55 +46,102 @@ void bass(Scene& s, std::initializer_list<BassNote> notes)
     }
 }
 
-void demoScenes(Project& p)
+// The pads of the built-in kits (kPadNames order)
+enum : int { kKick = 0, kClHat = 2, kOpHat = 3, kClap = 4, kRim = 5, kCrash = 9, kRide = 10, kKickLong = 11, kClapRoom = 14 };
+
+// Every quarter note of both bars of a 2-bar scene: the step inside the beat (0..3) plus 4 * beat.
+void beats(Scene& s, int pad, int offset, int vel)
 {
-    // A: house (909) — four on the floor, clap on 2 and 4, offbeat open hat, 16th closed hats
-    Scene& a = p.scene_data[0];
-    set(a, 0, {0, 4, 8, 12}, 120);
-    set(a, 4, {4, 12}, 110);
-    set(a, 3, {2, 6, 10, 14}, 95);
-    set(a, 2, {0, 1, 3, 4, 5, 7, 8, 9, 11, 12, 13, 15}, 70);
-    set(a, 2, {0, 4, 8, 12}, 96);
-    set(a, 5, {7, 15}, 80);
-    a.swing = 54;
-    // an acid line on top of it (C minor): accents and slides
-    bass(a, {{0, 0, 1, 0}, {2, 12, 0, 0}, {3, 0, 0, 1}, {4, 3, 0, 0}, {6, 0, 1, 0}, {7, 10, 0, 1},
-             {8, 12, 0, 0}, {10, 0, 0, 0}, {11, 7, 1, 1}, {12, 5, 0, 0}, {14, 3, 1, 0}, {15, 15, 0, 0}});
+    for (int b = 0; b < 8; ++b) set(s, pad, {b * 4 + offset}, vel);
+}
 
-    // B: techno — rumbling kick, rim stabs, ride, ratcheted hat at the end
-    Scene& b = p.scene_data[1];
-    set(b, 0, {0, 4, 8, 12}, 127);
-    set(b, 5, {3, 11, 14}, 90);
-    set(b, 3, {2, 6, 10, 14}, 100);
-    set(b, 10, {0, 2, 4, 6, 8, 10, 12, 14}, 70);
-    set(b, 2, {15}, 90);
-    b.track[2].step[15].ratchet = 3;
-    set(b, 4, {12}, 100);
-    b.track[4].step[12].prob = 60;
-    bass(b, {{0, -12, 1, 0}, {1, 0, 0, 0}, {3, -12, 0, 1}, {4, -10, 0, 0}, {6, 0, 1, 0}, {8, -12, 0, 0},
-             {9, 2, 0, 1}, {10, 3, 1, 0}, {12, -12, 0, 0}, {13, 0, 0, 0}, {14, -5, 1, 1}, {15, -2, 0, 0}});
+// 909 groove of the demo (both bars): four on the floor, clap on 2 and 4 with a quieter room clap under it
+// (the slapback), 16th closed hats with the offbeat loudest.
+void funkDrums(Scene& s, bool kick)
+{
+    if (kick) beats(s, kKick, 0, 118);
+    for (int st : {4, 12, 20, 28}) {
+        set(s, kClap, {st}, 108);
+        set(s, kClapRoom, {st}, 50);
+    }
+    beats(s, kClHat, 0, 72);
+    beats(s, kClHat, 1, 44);
+    beats(s, kClHat, 2, 96);
+    beats(s, kClHat, 3, 52);
+}
 
-    // C: hip-hop — syncopated kick, snare on 2 and 4, swung hats, ghost snare
-    Scene& c = p.scene_data[2];
-    set(c, 0, {0, 7, 10}, 120);
-    set(c, 1, {4, 12}, 115);
-    set(c, 1, {15}, 55);
-    set(c, 2, {0, 2, 4, 6, 8, 10, 12, 14}, 85);
-    set(c, 3, {6}, 80);
-    c.swing = 62;
+// The acid line (G minor, semitones from C2): an original 2-bar riff in the manner of late-90s French house -
+// the first 16th left out, octave jumps, slides and accents on a few scale tones.
+void funkRiff(Scene& s)
+{
+    bass(s, {{1, -5, 1, 0},  {2, 7, 0, 1},   {3, 5, 0, 0},   {5, -5, 0, 0},  {6, -2, 0, 1},  {7, 0, 1, 0},
+             {9, 7, 1, 1},   {10, 5, 0, 1},  {11, 2, 0, 0},  {12, -5, 0, 0}, {14, -2, 1, 0}, {15, 0, 0, 1},
+             {16, 2, 0, 0},  {17, -5, 1, 0}, {18, 7, 0, 0},  {20, 5, 0, 1},  {21, 7, 1, 0},  {23, 10, 0, 1},
+             {24, 12, 1, 0}, {25, 10, 0, 0}, {26, 7, 0, 1},  {27, 5, 0, 0},  {28, 2, 1, 0},  {30, 0, 0, 1},
+             {31, -2, 0, 0}});
+}
 
-    // D: breakbeat fill — ghost notes, snare roll with ratchets, crash at the start
-    Scene& d = p.scene_data[3];
-    set(d, 0, {0, 10}, 125);
-    set(d, 1, {4, 12}, 118);
-    set(d, 1, {7, 9}, 50);
-    set(d, 1, {13, 14, 15}, 100);
-    d.track[1].step[14].ratchet = 2;
-    d.track[1].step[15].ratchet = 4;
-    set(d, 2, {0, 2, 4, 6, 8, 10}, 80);
-    set(d, 9, {0}, 110);
-    set(d, 6, {11}, 100);
-    set(d, 7, {12}, 100);
+// The break's line: bar 1 of the riff twice, the second time climbing to the high G.
+void funkBreakRiff(Scene& s)
+{
+    bass(s, {{1, -5, 1, 0},  {2, 7, 0, 1},   {3, 5, 0, 0},   {5, -5, 0, 0},  {6, -2, 0, 1},  {7, 0, 1, 0},
+             {9, 7, 1, 1},   {10, 5, 0, 1},  {11, 2, 0, 0},  {12, -5, 0, 0}, {14, -2, 1, 0}, {15, 0, 0, 1},
+             {17, -5, 1, 0}, {18, 7, 0, 1},  {19, 5, 0, 0},  {21, -5, 0, 0}, {22, -2, 0, 1}, {23, 0, 1, 0},
+             {25, 7, 1, 1},  {26, 10, 0, 1}, {27, 12, 0, 0}, {28, 14, 1, 1}, {29, 17, 0, 1}, {30, 19, 1, 0}});
+}
+
+// The only demo (0.4.6): one track in the manner of the TB-303 + TR-909 sound of Daft Punk's "Da Funk" (111 BPM,
+// G minor, a distorted acid line over a plain 909 groove). Notes and patterns are our own. The four scenes are
+// its parts and the song plays them in order: A intro (drums), B groove + 303, C break (no kick), D full.
+void funkDemo(Project& p)
+{
+    p.bpm = 111.0f;
+    for (int i = 0; i < kScenes; ++i) {
+        p.scene_data[i].length = 32;
+        p.scene_data[i].swing = 56;
+    }
+    Scene& a = p.scene_data[0];   // A: intro, drums only, a rim and a pickup kick in bar 2
+    funkDrums(a, true);
+    set(a, kRim, {7, 23}, 60);
+    set(a, kKick, {30}, 84);
+
+    Scene& b = p.scene_data[1];   // B: groove with the acid line
+    funkDrums(b, true);
+    set(b, kRim, {7, 23}, 60);
+    funkRiff(b);
+
+    Scene& c = p.scene_data[2];   // C: break - no kick, a long kick at the start, rim syncopation, the riff climbs
+    funkDrums(c, false);
+    set(c, kKickLong, {0}, 104);
+    set(c, kRim, {3, 6, 11, 19, 22, 27}, 66);
+    funkBreakRiff(c);
+
+    Scene& d = p.scene_data[3];   // D: full - crash, ride, open hats on the offbeats (they choke the closed ones)
+    funkDrums(d, true);
+    for (int st = 2; st < 32; st += 4) d.track[kClHat].step[st] = Step{};
+    beats(d, kOpHat, 2, 84);
+    beats(d, kRide, 0, 58);
+    set(d, kCrash, {0}, 104);
+    funkRiff(d);
+
+    // Song: A A B B C C D D B B, then end. FOLLOW stays off until the user turns it on.
+    const int8_t chain[10] = {0, 0, 1, 1, 2, 2, 3, 3, 1, 1};
+    for (int i = 0; i < kSongSlots; ++i) p.song.slot[i] = i < 10 ? chain[i] : -1;
+
+    // The 303: low cutoff, high resonance, strong envelope and accent, heavy drive; a little delay
+    p.g[GP_BASS_CUTOFF] = 0.30f;
+    p.g[GP_BASS_RESO] = 0.80f;
+    p.g[GP_BASS_ENVMOD] = 0.62f;
+    p.g[GP_BASS_DECAY] = 0.50f;
+    p.g[GP_BASS_ACCENT] = 0.78f;
+    p.g[GP_BASS_DRIVE] = 0.80f;
+    p.g[GP_BASS_LEVEL] = -2.0f;
+    p.g[GP_BASS_SEND] = 0.18f;
+    p.g[GP_DLY_FEEDBACK] = 0.30f;
+    p.g[GP_DLY_LEVEL] = 0.40f;
+    // the room clap a little right, under the dry one
+    p.pad[kClapRoom].p[PP_PAN] = 0.35f;
+    p.pad[kClapRoom].p[PP_SEND] = 0.30f;
 }
 
 }  // namespace
@@ -107,7 +154,8 @@ static inline void zeroRange(void* from, const void* to)
     if (b > a) memset(a, 0, (size_t)(b - a));
 }
 
-void projectDefaults(Project& p)
+// Everything but the demo: parameter defaults, pad and bus names, empty scenes and song.
+static void baseDefaults(Project& p)
 {
     // p may be the LIVE project the audio task reads every block (App::newProject resets it in
     // place while a queued Stop is not processed yet). A whole-object memset would point every
@@ -169,12 +217,8 @@ void projectDefaults(Project& p)
         sc.swing = 50;
         sc.bass = BassLine{};
     }
-    demoScenes(p);
-
-    // Demo song: A A B B C C D D, then end. FOLLOW stays off until the user turns it on.
-    const int8_t chain[8] = {0, 0, 1, 1, 2, 2, 3, 3};
     for (int i = 0; i < kSongSlots; ++i) {
-        p.song.slot[i] = i < 8 ? chain[i] : -1;
+        p.song.slot[i] = -1;
         p.song.fx[i] = 0;
     }
     p.song.follow = 0;
@@ -189,26 +233,14 @@ void projectDefaults(Project& p)
     for (int g = 0; g < kGlobalParamCount; ++g) p.g[g] = globalSpec((GlobalParam)g).def;
 }
 
-void projectEmpty(Project& p)
+void projectDefaults(Project& p)
 {
-    projectDefaults(p);
-    for (int s = 0; s < kScenes; ++s) {
-        Scene& sc = p.scene_data[s];
-        for (int t = 0; t < kPads; ++t) {
-            sc.track[t].length = 0;
-            for (int st = 0; st < kMaxSteps; ++st) sc.track[t].step[st] = Step{};
-        }
-        sc.length = 16;
-        sc.div = Division::D1_16;
-        sc.swing = 50;
-        sc.bass = BassLine{};
-    }
-    for (int i = 0; i < kSongSlots; ++i) {
-        p.song.slot[i] = -1;
-        p.song.fx[i] = 0;
-    }
-    p.song.follow = 0;
+    baseDefaults(p);
+    funkDemo(p);
 }
+
+// NEW PROJECT: no demo, and none of its tempo or sound either (120 BPM, default knobs).
+void projectEmpty(Project& p) { baseDefaults(p); }
 
 // busGain() (every block per bus) and trackLength() (every step per track) are called by the audio
 // task's IRAM code: ORBIT_HOT keeps them off the flash cache too.

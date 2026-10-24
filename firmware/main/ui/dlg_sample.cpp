@@ -109,16 +109,16 @@ void updateInfo()
     char info[160];
     if (!s) {
         snprintf(file, sizeof file, "LAYER %d \xE2\x80\x94", a.ui().layer + 1);
-        snprintf(info, sizeof info, "Pusta warstwa \xE2\x80\x94 wczytaj sampel z BROWSER");
+        snprintf(info, sizeof info, "Empty layer \xE2\x80\x94 load a sample from BROWSER");
     } else {
         char khz[16];
         fmtKHz(khz, sizeof khz, s->rate);
         const double secs = s->rate ? (double)s->frames / (double)s->rate : 0.0;
         const char* ch = s->channels > 1 ? "stereo" : "mono";
-        const char* edited = undo ? " \xE2\x80\xA2 edytowany" : "";
+        const char* edited = undo ? " \xE2\x80\xA2 edited" : "";
         if (const char* kit = builtinKitName(s)) {
             snprintf(file, sizeof file, "%s", s->name[0] ? s->name : curPad().name);
-            snprintf(info, sizeof info, "wbudowany zestaw: %s \xE2\x80\xA2 %s \xE2\x80\xA2 %.3f s \xE2\x80\xA2 %s%s", kit, khz,
+            snprintf(info, sizeof info, "built-in kit: %s \xE2\x80\xA2 %s \xE2\x80\xA2 %.3f s \xE2\x80\xA2 %s%s", kit, khz,
                      secs, ch, edited);
         } else if (s->path[0]) {
             snprintf(file, sizeof file, "%s", baseName(s->path));
@@ -327,6 +327,7 @@ void open()
             lv_obj_set_style_border_color(b, c(col::disabled_line), LV_STATE_DISABLED);
         }
     }
+    modalScale(modalScaleFor(1.0f));   // Display > Interface size
     refresh();
 }
 

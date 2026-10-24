@@ -132,7 +132,7 @@ void bpmTyped(const char* text, void*)
     const double v = strtod(text, &end);
     while (end && (*end == ' ')) ++end;
     if (!end || end == text || *end != 0 || !(v >= 30.0 && v <= 300.0)) {
-        app().toast("Nieprawidłowe tempo: wpisz 30–300 BPM");
+        app().toast("Invalid tempo: enter 30–300 BPM");
         return;
     }
     app().setBpm((float)v);

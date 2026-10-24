@@ -18,6 +18,7 @@ host/lib/
 host/.zig-cache/
 host/shots/
 host/device_shots/
+host/device_shots_*/
 # test_sampleio writes its files here; only the UTF-8 manifest is a source
 host/testdata/*
 !host/testdata/utf8/

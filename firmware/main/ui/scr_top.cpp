@@ -25,7 +25,7 @@ namespace {
 
 // Six view tabs since 0.3 (BASS): 84 px wide, 8 apart (the prototype's five were 90 / 9).
 constexpr int kNavX = 377, kNavY = 13, kNavW = 84, kNavH = 35, kNavGap = 8;
-constexpr int kActX = 1153, kActY = 14, kActW = 32, kActH = 33, kActGap = 5;
+constexpr int kActX = 1153, kActY = 14, kActW = 36, kActH = 33, kActGap = 4;   // 0.4.6: 32 / 5 were too tight
 // Tab order (left to right) -> view; BASS sits next to SEQUENCE.
 const View kNavView[(int)View::Count] = {View::Sample, View::Sequence, View::Bass, View::Mixer, View::Browser, View::Fx};
 const char* const kNavNames[(int)View::Count] = {"SAMPLE", "SEQUENCE", "BASS", "MIXER", "BROWSER", "FX"};
@@ -39,6 +39,7 @@ lv_obj_t* s_play_lbl = nullptr;
 lv_obj_t* s_rec = nullptr;
 lv_obj_t* s_dirty = nullptr;
 lv_obj_t* s_learn = nullptr;
+lv_obj_t* s_sub = nullptr;      // "SAMPLER / SEQUENCER" (the MIDI LEARN chip takes its place)
 lv_obj_t* s_bt = nullptr;
 uint32_t s_rev_view = 0, s_rev_transport = 0, s_rev_project = 0, s_rev_midi = 0, s_rev_bt = 0;
 int s_drawn_view = -1;
@@ -59,6 +60,18 @@ void recCb(lv_event_t*) { app().toggleRecord(); }
 void helpCb(lv_event_t*) { dlg_help::open(); }
 void learnCb(lv_event_t*) { app().midiLearn(false); }
 void btCb(lv_event_t*) { dlg_settings::openAt(dlg_settings::kTabBluetooth); }
+
+// 0.4.6: the bar's touch targets reach the top of the screen and the bar's bottom and share the gaps between
+// neighbours (no overlap: a tap on the right edge of PLAY started REC); a finger that slides a little while it
+// presses still taps (PRESS_LOCK).
+void barTarget(lv_obj_t* b, int left, int right)
+{
+    lv_obj_update_layout(b);
+    lv_area_t a;
+    lv_obj_get_coords(b, &a);
+    setHitBox(b, left, a.y1, right, geo::top_h - 1 - a.y2);
+    lv_obj_add_flag(b, LV_OBJ_FLAG_PRESS_LOCK);
+}
 
 // .lt-actions button: transparent, 1 px #afb2b5 border, radius 6, #31343a glyph (the prototype's
 // ▶ / Ⅱ / ● / ? text symbols); .playing / .is-recording: accent border + accent glyph.
@@ -111,6 +124,7 @@ lv_obj_t* create(lv_obj_t* scr)
     lv_obj_set_pos(logo, 20, 9);
     lv_obj_update_layout(logo);
     lv_obj_t* sub = label(bar, "SAMPLER / SEQUENCER", f_r12, col::top_sub);
+    s_sub = sub;
     lv_obj_set_style_text_letter_space(sub, 1, 0);
     lv_obj_set_pos(sub, 20 + lv_obj_get_width(logo) + 19, 23);
 
@@ -134,10 +148,12 @@ lv_obj_t* create(lv_obj_t* scr)
         lv_obj_set_style_shadow_opa(b, 51, LV_STATE_CHECKED);
         lv_obj_add_event_cb(b, navCb, LV_EVENT_CLICKED, (void*)(intptr_t)view);
         s_nav[view] = b;
+        barTarget(b, i == 0 ? 20 : kNavGap / 2, kNavGap / 2);
     }
     // 0.3: maximize the work area (the view the tabs pick), right after the last tab.
-    lv_obj_set_pos(panelMaxButton(bar, Panel::Work), kNavX + (int)View::Count * (kNavW + kNavGap) + 2,
-                   kNavY + (kNavH - 26) / 2);
+    lv_obj_t* wmax = panelMaxButton(bar, Panel::Work);
+    lv_obj_set_pos(wmax, kNavX + (int)View::Count * (kNavW + kNavGap) + 2, kNavY + (kNavH - 26) / 2);
+    barTarget(wmax, 5, 10);
 
     // .lt-tools: folder (PROJECT MANAGER), gear (SETTINGS), separator, tempo block.
     lv_obj_t* fold = iconBtn(bar, Icon::Folder, 22, 31);
@@ -145,6 +161,7 @@ lv_obj_t* create(lv_obj_t* scr)
     lv_obj_set_pos(fold, 978, 16);
     lv_obj_add_event_cb(fold, projectCb, LV_EVENT_SHORT_CLICKED, nullptr);
     lv_obj_add_event_cb(fold, projectLongCb, LV_EVENT_LONG_PRESSED, nullptr);
+    barTarget(fold, 10, 5);
     // unsaved-changes dot: top-right corner of the folder button (inside it: no extra geometry)
     s_dirty = lv_obj_create(fold);
     lv_obj_remove_style_all(s_dirty);
@@ -157,13 +174,15 @@ lv_obj_t* create(lv_obj_t* scr)
     lv_obj_remove_flag(s_dirty, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(s_dirty, LV_OBJ_FLAG_EVENT_BUBBLE);
     lv_obj_add_flag(s_dirty, LV_OBJ_FLAG_HIDDEN);
-    // MIDI learn chip (hidden unless learning): x 871..969, between the navigation (ends at 863) and the folder
+    // MIDI learn chip (hidden unless learning): in place of the logo's subtitle (the six tabs and the maximize
+    // button reach x 957 since 0.3: the old place covered FX)
     s_learn = actionBtn(bar, "MIDI LEARN \xE2\x9C\x95", true, 98, 30);
-    lv_obj_set_pos(s_learn, 871, 16);
+    lv_obj_set_pos(s_learn, 20 + lv_obj_get_width(logo) + 12, 16);
     lv_obj_set_style_text_font(s_learn, f_m12, 0);
     lv_obj_set_style_text_letter_space(s_learn, 0, 0);
     lv_obj_set_style_pad_hor(s_learn, 4, 0);
     lv_obj_add_event_cb(s_learn, learnCb, LV_EVENT_CLICKED, nullptr);
+    barTarget(s_learn, 8, 8);
     lv_obj_add_flag(s_learn, LV_OBJ_FLAG_HIDDEN);
     // Bluetooth chip (hidden while off): x 296..333, with the logo subtitle (ends ~280) as a status, well apart
     // from the navigation (377) so it never reads as a sixth view button
@@ -173,11 +192,13 @@ lv_obj_t* create(lv_obj_t* scr)
     lv_obj_set_style_pad_hor(s_bt, 4, 0);
     lv_obj_set_style_text_color(s_bt, c(col::muted), 0);
     lv_obj_add_event_cb(s_bt, btCb, LV_EVENT_CLICKED, nullptr);
+    barTarget(s_bt, 10, 20);
     lv_obj_add_flag(s_bt, LV_OBJ_FLAG_HIDDEN);
     lv_obj_t* gear = iconBtn(bar, Icon::Settings, 22, 31);
     lv_obj_set_size(gear, 31, 30);
     lv_obj_set_pos(gear, 1020, 16);
     lv_obj_add_event_cb(gear, settingsCb, LV_EVENT_CLICKED, nullptr);
+    barTarget(gear, 5, 10);
     lv_obj_t* sep = lv_obj_create(bar);
     lv_obj_remove_style_all(sep);
     lv_obj_set_style_bg_opa(sep, LV_OPA_COVER, 0);
@@ -200,7 +221,10 @@ lv_obj_t* create(lv_obj_t* scr)
     // .lt-actions: PLAY (Play/Pause), REC, ? (help).
     s_play = actionButton(bar, kActX, "\xE2\x96\xB6", f_m14, playCb, &s_play_lbl);   // play
     s_rec = actionButton(bar, kActX + (kActW + kActGap), "\xE2\x97\x8F", f_r12, recCb, nullptr);   // record dot
-    actionButton(bar, kActX + 2 * (kActW + kActGap), "?", f_m14, helpCb, nullptr);
+    lv_obj_t* help = actionButton(bar, kActX + 2 * (kActW + kActGap), "?", f_m14, helpCb, nullptr);
+    barTarget(s_play, 3, kActGap / 2);
+    barTarget(s_rec, kActGap / 2, kActGap / 2);
+    barTarget(help, kActGap / 2, 1279 - (kActX + 3 * kActW + 2 * kActGap));
 
     s_rev_view = s_rev_transport = s_rev_project = s_rev_midi = s_rev_bt = 0;   // force the first refresh
     s_drawn_view = s_drawn_playing = s_drawn_rec = s_drawn_dirty = s_drawn_learn = s_drawn_bt = -1;
@@ -226,6 +250,10 @@ void refresh()
             s_drawn_learn = learn;
             if (learn) lv_obj_remove_flag(s_learn, LV_OBJ_FLAG_HIDDEN);
             else lv_obj_add_flag(s_learn, LV_OBJ_FLAG_HIDDEN);
+            if (s_sub) {
+                if (learn) lv_obj_add_flag(s_sub, LV_OBJ_FLAG_HIDDEN);
+                else lv_obj_remove_flag(s_sub, LV_OBJ_FLAG_HIDDEN);
+            }
         }
     }
     if (r.bt != s_rev_bt) {

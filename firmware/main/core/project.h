@@ -80,9 +80,10 @@ struct Track {
 
 // ACID BASS (303 style, 0.3): one monophonic line per scene, on the scene's step grid (length, division, swing).
 // A step plays its note for half a step; SLIDE holds it into the next note, which then glides instead of starting
-// again (and gets no new envelope). Notes are semitones from C2 (MIDI 36): -12..+24 = C1..C4.
+// again (and gets no new envelope). Notes are semitones from C2 (MIDI 36): -24..+36 = C0..C5 (0.4.6: an octave more
+// down and up, in place of the TUNE knob; it was -12..+24 = C1..C4).
 constexpr int kBassRootNote = 36;
-constexpr int kBassNoteMin = -12, kBassNoteMax = 24;
+constexpr int kBassNoteMin = -24, kBassNoteMax = 36;
 struct BassStep {
     uint8_t gate = 0;           // 1: a note, 0: rest
     int8_t note = 0;            // kBassNoteMin..kBassNoteMax (kept while the step rests)
@@ -139,11 +140,12 @@ struct Project {
     float g[kGlobalParamCount]; // see GlobalParam
 };
 
-// Fills a project with defaults: parameter defaults from params.h, bus names, pad names, the
-// demo patterns of scenes A..D (a 909-style beat so PLAY makes sound at once), an empty song.
+// Fills a project with defaults: parameter defaults from params.h, bus names, pad names and the demo (0.4.6: one
+// track in the manner of the 303 + 909 sound of "Da Funk", 111 BPM, scenes A..D = intro, groove, break, full, and
+// a song chain of them), so PLAY makes sound at once. Every boot starts with it.
 void projectDefaults(Project& p);
-// NEW PROJECT: projectDefaults() without the demo — every step of every scene off, straight 1/16 bars of 16
-// steps, an empty song. Pads, buses and FX keep their defaults.
+// NEW PROJECT: the defaults without the demo — every step of every scene off, straight 1/16 bars of 16 steps, an
+// empty song, 120 BPM and default knobs.
 void projectEmpty(Project& p);
 // Bus fader position -> linear gain (0 at 0, 1.0 at ~0.707, +6 dB at 1.0).
 float busGain(float level);

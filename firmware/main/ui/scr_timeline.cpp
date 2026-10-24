@@ -279,7 +279,7 @@ void commitCell(int cell)
         a.setSongSlot(i, r);
         u.after = p.song.slot[i];
         if (u.before >= 0 && u.before < kScenes && u.after >= 0 && u.after < kScenes && u.after != u.before)
-            a.toast("Slot %d: Scena %c \xE2\x86\x92 %c", i + 1, (char)('A' + u.before), (char)('A' + u.after));
+            a.toast("Slot %d: Scene %c \xE2\x86\x92 %c", i + 1, (char)('A' + u.before), (char)('A' + u.after));
     }
     u.valid = u.before != u.after;
     u.rev_project = a.revs().project;
@@ -308,7 +308,7 @@ void undoCell()
     if (s_undo.fx) a.toggleSongFx(i);
     else a.setSongSlot(i, s_undo.before);   // -1 clears, a scene sets it (it differs from now)
     s_undo.valid = false;
-    a.toast("Cofni\xC4\x99to slot %d", i + 1);
+    a.toast("Undid slot %d", i + 1);
 }
 
 // matrix-local cell under the active pointer, -1 outside the cells
@@ -356,7 +356,7 @@ void sceneCb(lv_event_t* e)
     // FOLLOW playback: the song chain picks the playing scene and the sequencer ignores the
     // queue request, so say why nothing changes audibly (the button only selects for editing).
     if (a.project().song.follow && a.playing() && a.songSlot() >= 0)
-        a.toast("FOLLOW: piosenka steruje scen\xC4\x85 \xE2\x80\x94 %c tylko do edycji", (char)('A' + s));
+        a.toast("FOLLOW: the song picks the scene \xE2\x80\x94 %c for editing only", (char)('A' + s));
 }
 
 int s_menu_to[3] = {1, 2, 3};

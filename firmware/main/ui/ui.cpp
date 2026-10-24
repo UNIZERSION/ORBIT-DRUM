@@ -116,6 +116,7 @@ void tickCb(lv_timer_t* t)
         s_period = want;
         lv_timer_set_period(t, want);
     }
+    keys::poll();   // the Tab5 Keyboard (0.4.6)
     topbar::refresh();
     pads::refresh();
     catpanel::refresh();

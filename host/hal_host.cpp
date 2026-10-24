@@ -422,6 +422,18 @@ int touchRate() { return 120; }
 void setTouchExclusive(int x1, int y1, int x2, int y2) { halHostSetExclusive(x1, y1, x2, y2); }
 void touchInject(const TouchPoint* points, int count) { halHostTouch(points, count); }   // (no touch task here)
 bool displayReadBack(int, void (*)(const uint16_t*, int, int, void*), void*) { return false; }
+// keyboard: no device on the PC; tests inject keys (kbdInject) and the UI tick takes them
+static std::deque<KeyEvent> g_keys;
+void kbdStart() {}
+bool kbdPresent() { return false; }
+bool kbdGet(KeyEvent& out)
+{
+    if (g_keys.empty()) return false;
+    out = g_keys.front();
+    g_keys.pop_front();
+    return true;
+}
+void kbdInject(const KeyEvent& e) { g_keys.push_back(e); }
 
 // ---------------------------------------------------------------- audio out
 bool audioStart(uint32_t sample_rate, int block_frames, RenderFn render, void* user)
