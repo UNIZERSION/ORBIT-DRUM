@@ -154,14 +154,16 @@ Requirements:
 - on Windows, Git Bash for the shell scripts.
 
 ```bash
+idf.py -C firmware reconfigure    # first time only: downloads the components (the PC tests use its LVGL too)
 idf.py -C firmware build          # or, on Windows: powershell -File tools/idf_build.ps1 -Project firmware
 ```
 
-The first configure downloads the components pinned in `firmware/dependencies.lock` (network needed). After
-that, builds work offline. `firmware_selftest` builds the same way.
+The first configure downloads the components pinned in `firmware/dependencies.lock` into
+`firmware/managed_components` (network needed). After that, builds work offline. `firmware_selftest` builds the
+same way.
 
 ```bash
-bash tools/run_host_tests.sh      # 16 test suites on the PC
+bash tools/run_host_tests.sh      # 16 test suites on the PC (after the first configure above)
 python tools/make_release.py      # checks the images and assembles release/KARTA_SD (+ manifest.json)
 ```
 
