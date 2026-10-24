@@ -1,0 +1,4 @@
+# Self-test additions on top of ../firmware/sdkconfig.defaults (both are listed in SDKCONFIG_DEFAULTS).
+# Bigger built-in fonts for the test screen
+CONFIG_LV_FONT_MONTSERRAT_20=y
+CONFIG_LV_FONT_MONTSERRAT_28=y

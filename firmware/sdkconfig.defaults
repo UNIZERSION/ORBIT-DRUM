@@ -1,0 +1,112 @@
+# ORBIT DRUM - M5Stack Tab5 (ESP32-P4 rev v1.x, 32 MB PSRAM, 16 MB flash), ESP-IDF 5.5.2 + LVGL 9.3.
+# This file is the configuration source: cmake/orbit_project.cmake regenerates sdkconfig when it changes.
+
+CONFIG_IDF_TARGET="esp32p4"
+CONFIG_IDF_EXPERIMENTAL_FEATURES=y
+# Tab5 ships ESP32-P4 silicon below v3.0 (v1.3 = rev 103); the launcher rejects images without it
+CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+
+# One 7 MB factory app (standalone flashing). Under the Tab5 launcher the .bin goes to its 8 MB slot.
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_OFFSET=0x8000
+
+# Performance: 360 MHz is the maximum below silicon v3.0
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_360=y
+CONFIG_FREERTOS_HZ=1000
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+# RGB565 rows are not always 4-byte aligned
+CONFIG_LIBC_OPTIMIZED_MISALIGNED_ACCESS=y
+
+# PSRAM: samples, frame buffers, big UI buffers. Small allocations stay internal.
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_SPEED_200M=y
+CONFIG_SPIRAM_USE_MALLOC=y
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=16384
+CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=65536
+
+# M5Stack Tab5 BSP
+CONFIG_BSP_ERROR_CHECK=n
+CONFIG_BSP_SD_FORMAT_ON_MOUNT_FAIL=n
+CONFIG_BSP_SD_MOUNT_POINT="/sdcard"
+CONFIG_BSP_LCD_USE_DMA2D=y
+CONFIG_BSP_DISPLAY_LVGL_AVOID_TEAR=n
+# Tear-free landscape (hal/display.cpp): LVGL renders 1280x720 pieces, the PPA rotates each piece into
+# a hidden 720x1280 DPI frame buffer, the frame is published once per LVGL refresh on VSYNC
+CONFIG_BSP_LCD_DPI_BUFFER_NUMS=3
+# DPI DMA restart and VSYNC interrupts keep running while the flash cache is off (NVS writes)
+CONFIG_LCD_DSI_ISR_CACHE_SAFE=y
+# I2S DMA interrupts keep running while the flash cache is off: no audio dropouts during flash writes
+CONFIG_I2S_ISR_IRAM_SAFE=y
+# up to 5 touch points (GT911 / ST7123)
+CONFIG_ESP_LCD_TOUCH_MAX_POINTS=5
+# USB host: configuration descriptors up to 2 KB (the default 256 B rejects multi-port MIDI interfaces and
+# USB audio + MIDI instruments during enumeration). Costs ~2 KB internal DMA RAM per device + the enum driver.
+CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE=2048
+# Core 1 belongs to the audio task (top priority). Under overload it yields only now and then, so the
+# idle-task check of CPU1 would print watchdog dumps (interrupts masked) on top of the crackle; the audio
+# task subscribes to the task watchdog itself, so a hung audio loop is still reported.
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
+
+# LVGL 9.3 (all widgets stay enabled: Kconfig defaults)
+CONFIG_LV_CONF_SKIP=y
+CONFIG_LV_COLOR_DEPTH_16=y
+CONFIG_LV_USE_CLIB_MALLOC=y
+CONFIG_LV_USE_CLIB_STRING=y
+CONFIG_LV_DEF_REFR_PERIOD=16
+# No LVGL OS layer: draw tasks run inline in the pinned LVGL port task (core 0, 16 KB stack); locking is
+# esp_lvgl_port's mutex. With an OS layer LVGL 9.3 starts an unpinned 16 KB "swdraw" thread per draw unit
+# (plain xTaskCreate), which renders on the audio core whenever core 0 is busy. If an OS layer is ever
+# needed: LV_OS_CUSTOM with xTaskCreatePinnedToCore(..., 0).
+CONFIG_LV_OS_NONE=y
+CONFIG_LV_DRAW_SW_DRAW_UNIT_CNT=1
+CONFIG_LV_USE_FONT_COMPRESSED=n
+CONFIG_LV_TXT_ENC_UTF8=y
+CONFIG_LV_USE_LOG=y
+CONFIG_LV_LOG_LEVEL_WARN=y
+CONFIG_LV_LOG_PRINTF=y
+CONFIG_LV_BUILD_EXAMPLES=n
+CONFIG_LV_USE_DEMO_WIDGETS=n
+
+# SD card: FAT32 + exFAT (cmake/exfat.cmake), long UTF-8 names
+CONFIG_FATFS_LFN_HEAP=y
+CONFIG_FATFS_MAX_LFN=255
+CONFIG_FATFS_API_ENCODING_UTF_8=y
+# ff.c with FF_FS_EXFAT = 1 uses FF_USE_LABEL in C code, so the option must be defined
+CONFIG_FATFS_USE_LABEL=y
+
+# Flash size (the Tab5 launcher takes images up to 4 MB): LVGL widgets and draw formats the UI never
+# uses. The UI needs obj, label, image, button, bar + slider, textarea, buttonmatrix + keyboard, flex,
+# grid; images and layers are RGB565 / ARGB8888 / A8 (fonts, icons).
+CONFIG_LV_USE_ANIMIMG=n
+CONFIG_LV_USE_ARC=n
+CONFIG_LV_USE_CALENDAR=n
+CONFIG_LV_USE_CANVAS=n
+CONFIG_LV_USE_CHART=n
+CONFIG_LV_USE_CHECKBOX=n
+CONFIG_LV_USE_DROPDOWN=n
+CONFIG_LV_USE_IMAGEBUTTON=n
+CONFIG_LV_USE_LED=n
+CONFIG_LV_USE_LINE=n
+CONFIG_LV_USE_LIST=n
+CONFIG_LV_USE_MENU=n
+CONFIG_LV_USE_MSGBOX=n
+CONFIG_LV_USE_ROLLER=n
+CONFIG_LV_USE_SCALE=n
+CONFIG_LV_USE_SPAN=n
+CONFIG_LV_USE_SPINBOX=n
+CONFIG_LV_USE_SPINNER=n
+CONFIG_LV_USE_SWITCH=n
+CONFIG_LV_USE_TABLE=n
+CONFIG_LV_USE_TABVIEW=n
+CONFIG_LV_USE_TILEVIEW=n
+CONFIG_LV_USE_WIN=n
+CONFIG_LV_USE_THEME_SIMPLE=n
+# RGB888 must stay on: LVGL 9.3 blends horizontal gradients (wave_view marker glow) as an RGB888 row
+CONFIG_LV_DRAW_SW_SUPPORT_RGB888=y
+CONFIG_LV_DRAW_SW_SUPPORT_L8=n
+CONFIG_LV_DRAW_SW_SUPPORT_AL88=n
+CONFIG_LV_DRAW_SW_SUPPORT_I1=n

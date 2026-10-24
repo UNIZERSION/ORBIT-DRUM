@@ -1,0 +1,42 @@
+# ---- build outputs
+firmware/build/
+firmware_selftest/build/
+# ESP-IDF components: downloaded from dependencies.lock on the first configure
+firmware/managed_components/
+firmware_selftest/managed_components/
+# generated from sdkconfig.defaults (the configuration source of both projects)
+firmware/sdkconfig
+firmware/sdkconfig.old
+firmware_selftest/sdkconfig
+firmware_selftest/sdkconfig.old
+*.log
+
+# ---- PC harness outputs
+host/bin/
+host/out/
+host/lib/
+host/.zig-cache/
+host/shots/
+host/device_shots/
+# test_sampleio writes its files here; only the UTF-8 manifest is a source
+host/testdata/*
+!host/testdata/utf8/
+tools/fontgen/bin/
+tools/fontgen/specimen_out/
+tools/kitgen/bin/
+__pycache__/
+*.pyc
+
+# ---- release artifacts (published as GitHub Releases)
+release/
+dist/
+
+# ---- local only
+reference/
+docs/BADANIA_DAW_SYNTEZATORY.md
+docs/BADANIA_SUROWE_WNIOSKI.txt
+docs/TAB5_SPRZET_NOTATKI.md
+.claude/
+.vscode/
+
+tools/ref_capture.py

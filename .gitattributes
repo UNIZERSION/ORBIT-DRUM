@@ -1,0 +1,9 @@
+# Text files are stored with LF in the repository (the working copy may use CRLF on Windows).
+* text=auto
+*.png binary
+*.wav binary
+*.ttf binary
+*.bin binary
+*.orb binary
+*.a binary
+*.zip binary

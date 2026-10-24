@@ -1,0 +1,3 @@
+// Embeds a manifest with activeCodePage=UTF-8 so narrow stdio/dirent calls use UTF-8 file names
+// (Polish names in the library test). Windows 10 1903+.
+1 24 "utf8.manifest"

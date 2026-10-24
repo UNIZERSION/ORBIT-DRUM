@@ -1,0 +1,16 @@
+01=01_Kick.wav
+02=02_Snare.wav
+03=03_Closed_Hat.wav
+04=04_Open_Hat.wav
+05=05_Clap.wav
+06=06_Rim.wav
+07=07_Low_Tom.wav
+08=08_Mid_Tom.wav
+09=09_High_Tom.wav
+10=10_Crash.wav
+11=11_Ride.wav
+12=12_Kick_Long.wav
+13=13_Snare_Snap.wav
+14=14_Open_Hat_Long.wav
+15=15_Clap_Room.wav
+16=16_Kick_Hard.wav

@@ -1,0 +1,7 @@
+# ORBIT DRUM, 16 MB flash, standalone layout (idf.py flash on a Tab5 WITHOUT the Tab5 launcher).
+# The launcher installs orbit_drum.bin from the SD card into its own 8 MB app slot and keeps its own
+# partition table; then this table is not used. The factory slot (7 MB) keeps the image below the
+# launcher's slot size. NVS sits at 0x9000 as in the launcher table (the app uses namespace "orbit").
+# Name,   Type, SubType, Offset,   Size,
+nvs,      data, nvs,     0x9000,   0x6000,
+factory,  app,  factory, 0x10000,  0x700000,

@@ -1,0 +1,4 @@
+# ORBIT self-test: same layout as ../firmware/partitions.csv (one 7 MB factory app).
+# Name,   Type, SubType, Offset,   Size,
+nvs,      data, nvs,     0x9000,   0x6000,
+factory,  app,  factory, 0x10000,  0x700000,
