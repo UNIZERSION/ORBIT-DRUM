@@ -7,3 +7,5 @@
 *.orb binary
 *.a binary
 *.zip binary
+# the SD card content goes to the card byte for byte (kit.txt as tools/kitgen writes it)
+sdcard/** -text

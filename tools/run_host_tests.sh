@@ -46,7 +46,7 @@ LV=firmware/managed_components/lvgl__lvgl
 J="${IDF_PATH:-$HOME/esp/v5.5.2/esp-idf}/components/json/cJSON"
 BIN=host/bin
 LOGS=host/out/test_logs
-mkdir -p "$BIN" "$LOGS"
+mkdir -p "$BIN" "$LOGS" host/shots   # (not in git: a fresh clone has none of them)
 CXX="zig c++ -target $T -std=c++17 -O2 -Wall -Wextra -Ifirmware/main -Ihost"
 BASE="$C/params.cpp $C/project.cpp $C/sample.cpp host/platform_host.cpp"
 KITOBJ="$BIN/kits_808.o $BIN/kits_909.o"
