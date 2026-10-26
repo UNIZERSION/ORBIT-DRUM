@@ -139,8 +139,8 @@ lv_obj_t* create(lv_obj_t* scr)
     s_bar = bar;
 
     // 0.4.8: the ORBIT DAW wordmark (tools/logogen, A8 recoloured with the ink) in place of "TAB5" and its
-    // "SAMPLER / SEQUENCER" subtitle; 0.4.9: a heavy blade style, 250 x 35 (20 .. 269), left of the BT chip (296)
-    // and the tabs (377).
+    // "SAMPLER / SEQUENCER" subtitle; 0.4.9: a slanted speed style, about 260 x 26 (20 .. ~280), left of the BT
+    // chip (296) and the tabs (377).
     lv_obj_t* logo = lv_image_create(bar);
     lv_image_set_src(logo, &kLogoOrbitDaw);
     lv_obj_set_style_image_recolor(logo, c(col::ink), 0);
