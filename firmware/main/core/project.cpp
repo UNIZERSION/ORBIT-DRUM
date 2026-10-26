@@ -50,7 +50,10 @@ void bass(Scene& s, std::initializer_list<BassNote> notes)
 }
 
 // The pads of the built-in kits (kPadNames order)
-enum : int { kKick = 0, kClHat = 2, kOpHat = 3, kClap = 4, kRim = 5, kCrash = 9, kRide = 10, kKickLong = 11, kClapRoom = 14 };
+enum : int {
+    kKick = 0, kSnare = 1, kClHat = 2, kOpHat = 3, kClap = 4, kRim = 5, kLoTom = 6, kMidTom = 7, kHiTom = 8,
+    kCrash = 9, kRide = 10, kKickLong = 11
+};
 
 // Every quarter note of both bars of a 2-bar scene: the step inside the beat (0..3) plus 4 * beat.
 void beats(Scene& s, int pad, int offset, int vel)
@@ -58,112 +61,160 @@ void beats(Scene& s, int pad, int offset, int vel)
     for (int b = 0; b < 8; ++b) set(s, pad, {b * 4 + offset}, vel);
 }
 
-// 909 groove of the demo (both bars): four on the floor, clap on 2 and 4 with a quieter room clap under it
-// (the slapback), 16th closed hats with the offbeat loudest.
-void funkDrums(Scene& s, bool kick)
+// SYNTH line helper: a chord (or one note) of up to 4 notes on a step.
+void chord(Scene& s, int step, int len, int vel, std::initializer_list<int> notes)
 {
-    if (kick) beats(s, kKick, 0, 118);
-    for (int st : {4, 12, 20, 28}) {
-        set(s, kClap, {st}, 108);
-        set(s, kClapRoom, {st}, 50);
+    SynthStep& st = s.synth.step[step];
+    int i = 0;
+    for (int n : notes) {
+        if (i >= kSynthStepNotes) break;
+        st.n[i].note = (uint8_t)n;
+        st.n[i].vel = (uint8_t)vel;
+        st.n[i].len = (uint8_t)len;
+        ++i;
     }
-    beats(s, kClHat, 0, 72);
-    beats(s, kClHat, 1, 44);
-    beats(s, kClHat, 2, 96);
-    beats(s, kClHat, 3, 52);
 }
 
-// The acid line (G minor, semitones from C2): an original 2-bar riff in the manner of late-90s French house -
-// the first 16th left out, octave jumps, slides and accents on a few scale tones.
-void funkRiff(Scene& s)
+// The demo's drums, both bars: four on the floor (kick), a clap on 2 and 4, closed hats (16ths with the offbeats
+// loud, or only the offbeat 8ths), open hats on the "and" of 2 and 4 (they choke the closed ones).
+void demoKick(Scene& s, int vel) { beats(s, kKick, 0, vel); }
+void demoClap(Scene& s, int vel)
 {
-    bass(s, {{1, -5, 1, 0},  {2, 7, 0, 1},   {3, 5, 0, 0},   {5, -5, 0, 0},  {6, -2, 0, 1},  {7, 0, 1, 0},
-             {9, 7, 1, 1},   {10, 5, 0, 1},  {11, 2, 0, 0},  {12, -5, 0, 0}, {14, -2, 1, 0}, {15, 0, 0, 1},
-             {16, 2, 0, 0},  {17, -5, 1, 0}, {18, 7, 0, 0},  {20, 5, 0, 1},  {21, 7, 1, 0},  {23, 10, 0, 1},
-             {24, 12, 1, 0}, {25, 10, 0, 0}, {26, 7, 0, 1},  {27, 5, 0, 0},  {28, 2, 1, 0},  {30, 0, 0, 1},
-             {31, -2, 0, 0}});
+    for (int st : {4, 12, 20, 28}) set(s, kClap, {st}, vel);
+}
+void demoHats16(Scene& s)
+{
+    beats(s, kClHat, 0, 46);
+    beats(s, kClHat, 1, 58);
+    beats(s, kClHat, 2, 92);
+    beats(s, kClHat, 3, 58);
+}
+void demoOpenHats(Scene& s, int vel)
+{
+    for (int st : {6, 14, 22, 30}) {
+        s.track[kClHat].step[st] = Step{};
+        set(s, kOpHat, {st}, vel);
+    }
 }
 
-// The break's line: bar 1 of the riff twice, the second time climbing to the high G.
-void funkBreakRiff(Scene& s)
+// The acid line (A minor, semitones from C2) over the chords Am F C G, half a bar each: a rolling 16th line with
+// octave jumps, slides into the next note and accents on the chord roots.
+void demoRiff(Scene& s)
 {
-    bass(s, {{1, -5, 1, 0},  {2, 7, 0, 1},   {3, 5, 0, 0},   {5, -5, 0, 0},  {6, -2, 0, 1},  {7, 0, 1, 0},
-             {9, 7, 1, 1},   {10, 5, 0, 1},  {11, 2, 0, 0},  {12, -5, 0, 0}, {14, -2, 1, 0}, {15, 0, 0, 1},
-             {17, -5, 1, 0}, {18, 7, 0, 1},  {19, 5, 0, 0},  {21, -5, 0, 0}, {22, -2, 0, 1}, {23, 0, 1, 0},
-             {25, 7, 1, 1},  {26, 10, 0, 1}, {27, 12, 0, 0}, {28, 14, 1, 1}, {29, 17, 0, 1}, {30, 19, 1, 0}});
+    bass(s, {{0, -3, 1, 0},  {2, 9, 0, 1},   {3, -3, 0, 0},  {5, 4, 0, 0},   {6, -3, 1, 0},  {7, 7, 0, 1},
+             {8, -7, 1, 0},  {10, 5, 0, 1},  {11, 0, 0, 0},  {13, -7, 0, 0}, {14, -3, 1, 0}, {15, 0, 0, 1},
+             {16, 0, 1, 0},  {18, 12, 0, 1}, {19, -5, 0, 0}, {21, 0, 0, 0},  {22, 4, 1, 0},  {23, 7, 0, 1},
+             {24, -5, 1, 0}, {26, 7, 0, 0},  {27, 2, 0, 1},  {28, -5, 0, 0}, {29, -1, 0, 0}, {30, 2, 1, 1},
+             {31, 4, 0, 0}});
 }
 
-// The only demo (0.4.6): one track in the manner of the TB-303 + TR-909 sound of Daft Punk's "Da Funk" (111 BPM,
-// G minor, a distorted acid line over a plain 909 groove). Notes and patterns are our own. The four scenes are
-// its parts and the song plays them in order: A intro (drums), B groove + 303, C break (no kick), D full.
-void funkDemo(Project& p)
+// The break's line: the chord roots held with slides up the octave, climbing into the drop at the end.
+void demoBreakRiff(Scene& s)
 {
-    p.bpm = 111.0f;
+    bass(s, {{0, -3, 1, 0},  {3, 9, 0, 1},   {4, 7, 0, 0},   {8, -7, 1, 0},  {11, 5, 0, 1},  {12, 4, 0, 0},
+             {16, 0, 1, 0},  {19, 12, 0, 1}, {20, 11, 0, 0}, {24, -5, 1, 0}, {27, 7, 0, 1},  {28, 9, 0, 0},
+             {30, 11, 1, 1}, {31, 12, 0, 0}});
+}
+
+// The only demo (0.4.9, our own track): "ORBIT DRIVE", 124 BPM, A minor, the chords Am F C G (half a bar each).
+// The three instruments - the drums, the 303 and the SYNTH - build it up; the song plays the parts in order:
+//   A intro   kick, offbeat hats, a rim; the SYNTH holds the chords
+//   B groove  + clap, 16th hats, open hats; the acid line; offbeat SYNTH stabs
+//   C break   no kick: clap, hats, a tom and snare fill; the acid line held; a SYNTH arpeggio
+//   D drop    everything: crash, ride, the acid line, the SYNTH hook over short chord dyads
+void orbitDemo(Project& p)
+{
+    p.bpm = 124.0f;
     for (int i = 0; i < kScenes; ++i) {
         p.scene_data[i].length = 32;
-        p.scene_data[i].swing = 56;
+        p.scene_data[i].swing = 54;
     }
-    Scene& a = p.scene_data[0];   // A: intro, drums only, a rim and a pickup kick in bar 2
-    funkDrums(a, true);
-    set(a, kRim, {7, 23}, 60);
-    set(a, kKick, {30}, 84);
+    // the voicings (MIDI notes, around C4..C6 where the SYNTH view shows them): Am F C G
+    const int am[3] = {64, 69, 72}, f[3] = {65, 69, 72}, c[3] = {64, 67, 72}, g[3] = {62, 67, 71};
+    const int* const chords[4] = {am, f, c, g};
 
-    Scene& b = p.scene_data[1];   // B: groove with the acid line
-    funkDrums(b, true);
-    set(b, kRim, {7, 23}, 60);
-    funkRiff(b);
+    Scene& a = p.scene_data[0];   // A: intro
+    demoKick(a, 108);
+    for (int b = 0; b < 8; ++b) set(a, kClHat, {b * 4 + 2}, 84);
+    set(a, kRim, {14, 30}, 64);
+    for (int h = 0; h < 4; ++h) chord(a, h * 8, h == 3 ? 8 : 7, 78, {chords[h][0], chords[h][1], chords[h][2]});
 
-    Scene& c = p.scene_data[2];   // C: break - no kick, a long kick at the start, rim syncopation, the riff climbs
-    funkDrums(c, false);
-    set(c, kKickLong, {0}, 104);
-    set(c, kRim, {3, 6, 11, 19, 22, 27}, 66);
-    funkBreakRiff(c);
+    Scene& b = p.scene_data[1];   // B: groove
+    demoKick(b, 116);
+    demoClap(b, 104);
+    demoHats16(b);
+    demoOpenHats(b, 72);
+    set(b, kRim, {3, 11, 19, 27}, 52);
+    demoRiff(b);
+    for (int h = 0; h < 4; ++h)
+        for (int st : {2, 6}) chord(b, h * 8 + st, 1, st == 2 ? 78 : 70, {chords[h][0], chords[h][1], chords[h][2]});
 
-    Scene& d = p.scene_data[3];   // D: full - crash, ride, open hats on the offbeats (they choke the closed ones)
-    funkDrums(d, true);
-    for (int st = 2; st < 32; st += 4) d.track[kClHat].step[st] = Step{};
-    beats(d, kOpHat, 2, 84);
-    beats(d, kRide, 0, 58);
+    Scene& c2 = p.scene_data[2];   // C: break
+    demoClap(c2, 88);
+    for (int b2 = 0; b2 < 8; ++b2) set(c2, kClHat, {b2 * 4 + 2}, 76);
+    set(c2, kKickLong, {0}, 100);
+    set(c2, kLoTom, {24}, 92);
+    set(c2, kMidTom, {26}, 96);
+    set(c2, kHiTom, {27}, 100);
+    set(c2, kSnare, {28}, 64);
+    set(c2, kSnare, {29}, 80);
+    set(c2, kSnare, {30}, 96);
+    set(c2, kSnare, {31}, 112);
+    demoBreakRiff(c2);
+    {
+        const int arp[16] = {69, 72, 76, 72, 69, 72, 77, 72, 67, 72, 76, 72, 67, 71, 74, 79};
+        for (int i = 0; i < 16; ++i) chord(c2, i * 2, 1, i % 4 == 0 ? 92 : 70, {arp[i]});
+    }
+
+    Scene& d = p.scene_data[3];   // D: drop
+    demoKick(d, 118);
+    demoClap(d, 108);
+    demoHats16(d);
+    demoOpenHats(d, 80);
+    beats(d, kRide, 0, 54);
     set(d, kCrash, {0}, 104);
-    funkRiff(d);
+    demoRiff(d);
+    {
+        struct Note {
+            int step, len, note;
+        };
+        const Note hook[] = {{0, 2, 76},  {3, 1, 74},  {4, 2, 72},  {6, 2, 69},  {8, 2, 72},  {11, 1, 69},
+                             {12, 1, 72}, {14, 2, 77}, {16, 3, 76}, {19, 1, 74}, {20, 2, 72}, {22, 2, 67},
+                             {24, 2, 71}, {26, 2, 74}, {28, 3, 79}, {31, 1, 81}};
+        for (const Note& n : hook) chord(d, n.step, n.len, n.step % 8 == 0 ? 100 : 86, {n.note});
+        // short dyads on the offbeats under the hook (the root's third and fifth, below it)
+        const int dy[4][2] = {{60, 64}, {60, 65}, {60, 64}, {59, 62}};
+        for (int h = 0; h < 4; ++h)
+            for (int st : {2, 6}) {
+                SynthStep& sst = d.synth.step[h * 8 + st];
+                if (sst.n[0].note) continue;   // (the hook does not land on these steps)
+                chord(d, h * 8 + st, 1, 64, {dy[h][0], dy[h][1]});
+            }
+    }
 
-    // Song: A A B B C C D D B B, then end. FOLLOW stays off until the user turns it on.
-    const int8_t chain[10] = {0, 0, 1, 1, 2, 2, 3, 3, 1, 1};
+    // Song: A A B B C C D D B A, then end. FOLLOW stays off until the user turns it on.
+    const int8_t chain[10] = {0, 0, 1, 1, 2, 2, 3, 3, 1, 0};
     for (int i = 0; i < kSongSlots; ++i) p.song.slot[i] = i < 10 ? chain[i] : -1;
 
-    // The 303: low cutoff, high resonance, strong envelope and accent, heavy drive; a little delay
-    p.g[GP_BASS_CUTOFF] = 0.30f;
-    p.g[GP_BASS_RESO] = 0.80f;
-    p.g[GP_BASS_ENVMOD] = 0.62f;
-    p.g[GP_BASS_DECAY] = 0.50f;
-    p.g[GP_BASS_ACCENT] = 0.78f;
-    p.g[GP_BASS_DRIVE] = 0.80f;
-    p.g[GP_BASS_LEVEL] = -2.0f;
-    p.g[GP_BASS_SEND] = 0.18f;
-    p.g[GP_DLY_FEEDBACK] = 0.30f;
-    p.g[GP_DLY_LEVEL] = 0.40f;
-    // the room clap a little right, under the dry one
-    p.pad[kClapRoom].p[PP_PAN] = 0.35f;
-    p.pad[kClapRoom].p[PP_SEND] = 0.30f;
-
-    // SYNTH (0.4.9): short chord stabs over the full part D (G minor: Gm, F, Bb), a plucked patch with some delay
-    synthApplyPreset(2, p.g);   // PLUCK
-    p.g[GP_SYN_LEVEL] = -9.0f;
-    p.g[GP_SYN_SEND] = 0.28f;
-    struct Stab {
-        int step, len, a, b, c;
-    };
-    const Stab stabs[] = {{2, 1, 67, 70, 74},  {6, 1, 67, 70, 74},  {10, 1, 67, 70, 74}, {13, 2, 65, 69, 72},
-                          {18, 1, 67, 70, 74}, {22, 1, 67, 70, 74}, {26, 2, 70, 74, 77}, {29, 3, 65, 69, 72}};
-    for (const Stab& s : stabs) {
-        SynthStep& st = d.synth.step[s.step];
-        const int notes[3] = {s.a, s.b, s.c};
-        for (int i = 0; i < 3; ++i) {
-            st.n[i].note = (uint8_t)notes[i];
-            st.n[i].vel = 92;
-            st.n[i].len = (uint8_t)s.len;
-        }
-    }
+    // The 303: a round, squelchy line (moderate cutoff and drive), a little delay
+    p.g[GP_BASS_CUTOFF] = 0.36f;
+    p.g[GP_BASS_RESO] = 0.72f;
+    p.g[GP_BASS_ENVMOD] = 0.56f;
+    p.g[GP_BASS_DECAY] = 0.42f;
+    p.g[GP_BASS_ACCENT] = 0.70f;
+    p.g[GP_BASS_DRIVE] = 0.45f;
+    p.g[GP_BASS_LEVEL] = -3.0f;
+    p.g[GP_BASS_SEND] = 0.12f;
+    // The SYNTH: the BRASS patch with less vibrato, under the drums, into the delay and the reverb
+    synthApplyPreset(0, p.g);   // BRASS
+    p.g[GP_SYN_LFO_PITCH] = 0.02f;
+    p.g[GP_SYN_LEVEL] = -10.0f;
+    p.g[GP_SYN_SEND] = 0.24f;
+    p.g[GP_DLY_FEEDBACK] = 0.32f;
+    p.g[GP_DLY_LEVEL] = 0.36f;
+    // hats a little right, the open hat a little left
+    p.pad[kClHat].p[PP_PAN] = 0.12f;
+    p.pad[kOpHat].p[PP_PAN] = -0.12f;
 }
 
 }  // namespace
@@ -259,7 +310,7 @@ static void baseDefaults(Project& p)
 void projectDefaults(Project& p)
 {
     baseDefaults(p);
-    funkDemo(p);
+    orbitDemo(p);
 }
 
 // NEW PROJECT: no demo, and none of its tempo or sound either (120 BPM, default knobs).

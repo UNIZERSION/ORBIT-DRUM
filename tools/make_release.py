@@ -6,6 +6,9 @@
     ORBIT/ORBIT_DRUM_<ver>.bin       the app, installed with the launcher's SD tab
     ORBIT/TEST/ORBIT_SELFTEST_<ver>.bin  optional hardware self-test (display, touch, audio, SD)
     ORBIT/KITS, SAMPLES, USER, PROJECTS  sample library folders (808/909 STYLE kits included)
+- Writes release/ORBIT_DRUM_<ver>_M5Burner.bin (0.4.9): the whole flash image from address 0x0 (bootloader at
+  0x2000, partition table at 0x8000, ORBIT at 0x10000 as the only app), for M5Burner or esptool write_flash 0x0.
+  ORBIT then runs on its own, without a launcher.
 - Writes release/manifest.json with the SHA-256 of every file.
 
 Usage: python -I tools/make_release.py
@@ -19,6 +22,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 APP = ROOT / 'firmware' / 'build' / 'orbit_drum.bin'
+BOOTLOADER = ROOT / 'firmware' / 'build' / 'bootloader' / 'bootloader.bin'
+PTABLE = ROOT / 'firmware' / 'build' / 'partition_table' / 'partition-table.bin'
 SELFTEST = ROOT / 'firmware_selftest' / 'build' / 'orbit_selftest.bin'
 SD_SRC = ROOT / 'sdcard' / 'ORBIT'
 OUT = ROOT / 'release'
@@ -75,6 +80,37 @@ def check_image(path):
             'chip_rev_range': f'{min_rev}..{max_rev}', 'sha256': sha256(path)}
 
 
+def full_image(path):
+    """The flash image from 0x0 (as esptool merge_bin writes it, the gaps 0xFF): bootloader, table, app."""
+    parts = [(0x2000, BOOTLOADER), (0x8000, PTABLE), (0x10000, APP)]
+    for off, p in parts:
+        if not p.exists():
+            raise SystemExit(f'missing {p}: build the firmware first')
+    boot = BOOTLOADER.read_bytes()
+    if boot[0] != 0xE9 or 0x2000 + len(boot) > 0x8000:
+        raise SystemExit('bootloader.bin: not an ESP image, or too big for 0x2000..0x8000')
+    table = PTABLE.read_bytes()
+    if table[:2] != b'\xaa\x50':
+        raise SystemExit('partition-table.bin: no partition entries')
+    # the table must put an app at 0x10000 big enough for ORBIT
+    app_len = APP.stat().st_size
+    ok = False
+    for i in range(0, len(table), 32):
+        e = table[i:i + 32]
+        if e[:2] != b'\xaa\x50':
+            break
+        off, size = struct.unpack_from('<II', e, 4)
+        ok = ok or (e[2] == 0 and off == 0x10000 and size >= app_len)
+    if not ok:
+        raise SystemExit('partition-table.bin: no app partition at 0x10000 for orbit_drum.bin')
+    img = bytearray(b'\xff' * (0x10000 + app_len))
+    for off, p in parts:
+        b = p.read_bytes()
+        img[off:off + len(b)] = b
+    path.write_bytes(bytes(img))
+    return {'file': path.name, 'bytes': len(img), 'flash_offset': '0x0', 'sha256': sha256(path)}
+
+
 def main():
     if not APP.exists():
         raise SystemExit('build the firmware first: tools\\idf_build.ps1 -Project firmware')
@@ -99,6 +135,7 @@ def main():
         (CARD / 'ORBIT' / 'TEST').mkdir()
         shutil.copy2(SELFTEST, CARD / 'ORBIT' / 'TEST' / f'ORBIT_SELFTEST_{ver}.bin')
         files['selftest'] = st
+    files['full_image'] = full_image(OUT / f'ORBIT_DRUM_{ver}_M5Burner.bin')
     manifest = {'project': 'ORBIT DRUM', 'version': ver, 'images': files, 'card': {}}
     for p in sorted(CARD.rglob('*')):
         if p.is_file():
@@ -108,6 +145,8 @@ def main():
     if 'selftest' in files:
         print(f"selftest: {files['selftest']['bytes']} B")
     print(f"card files: {len(manifest['card'])} -> {CARD}")
+    fi = files['full_image']
+    print(f"full flash image (M5Burner, write at 0x0): {fi['file']} {fi['bytes']} B")
 
 
 if __name__ == '__main__':

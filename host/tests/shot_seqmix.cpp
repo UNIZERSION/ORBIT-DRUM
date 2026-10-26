@@ -218,7 +218,7 @@ static void testSequence()
     app().setLane(StepLane::Trig);
     app().setSeqBank(0);
     app().setSeqPage(0);
-    // 0.4.6: the demo's scenes are 2 bars at 56 % swing; these checks start from one bar at 54 %
+    // the demo's scenes are 2 bars (0.4.9: at 54 % swing); these checks start from one bar at 54 %
     app().setSceneLength(16);
     app().setSwing(54);
     lvhost_run(300);

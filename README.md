@@ -42,9 +42,13 @@ Current version: **0.4.9**. Polish manual and version history: [docs/INSTRUKCJA_
   on-screen keyboard, waveform preview, LOAD TO pad, LOAD KIT.
 - **Built-in kits**: 808-STYLE and 909-STYLE, synthesized from circuit descriptions (no Roland samples). They work
   without a card.
-- **Demo**: every start opens one demo track in the manner of the 303 + 909 sound of Daft Punk's "Da Funk"
-  (111 BPM, G minor, a distorted acid line over a plain 909 groove; our own notes). Scenes A–D are its intro,
-  groove, break and full part; turn on FOLLOW to play them as a song. NEW PROJECT starts empty.
+- **Demo**: every start opens one demo track, our own "ORBIT DRIVE" (0.4.9: 124 BPM, A minor, the chords
+  Am F C G), played by all three instruments: A intro (kick, hats, the SYNTH holding the chords), B groove (+ clap,
+  16th hats, the acid line, SYNTH stabs), C break (no kick: a tom and snare fill, the acid line held, a SYNTH
+  arpeggio), D drop (everything, the SYNTH hook). Turn on FOLLOW to play the song A A B B C C D D B A.
+  NEW PROJECT starts empty.
+- **M5Burner**: `tools/make_release.py` also writes one whole-flash image to burn at 0x0 (see
+  [docs/M5BURNER.md](docs/M5BURNER.md)): ORBIT then runs on its own, without a launcher.
 - **Projects** on microSD (FAT32 or exFAT) with autosave and JSON export.
 - **USB-MIDI host** (USB-A): notes to pads, transport, clock in / out, MIDI learn for 32 controls.
 - **Bluetooth A2DP** headphones and speakers through an M5Stamp Pico bridge (see below).

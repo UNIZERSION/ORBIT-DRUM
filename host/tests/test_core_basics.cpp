@@ -135,15 +135,16 @@ int main()
 
     static Project p;
     projectDefaults(p);
-    // 0.4.6: the only demo, in the manner of "Da Funk": 111 BPM, 2-bar scenes, four on the floor, clap on 2 and 4,
-    // the acid line from scene B on (G minor), a song chain A A B B C C D D B B
-    CHECK(p.bpm == 111.f);
-    CHECK(p.scene_data[0].track[0].step[0].on == 1);
+    // 0.4.9: the only demo, our own track "ORBIT DRIVE": 124 BPM, A minor (Am F C G), 2-bar scenes, four on the
+    // floor in A, B and D, a clap on 2 and 4 from B on, the acid line from B on, a song chain A A B B C C D D B A
+    CHECK(p.bpm == 124.f);
+    for (int s : {0, 1, 3})
+        for (int st = 0; st < 32; st += 4) CHECK(p.scene_data[s].track[0].step[st].on == 1);
     CHECK(trackLength(p.scene_data[0], 0) == 32);
-    for (int s = 0; s < kScenes; ++s) CHECK(p.scene_data[s].length == 32 && p.scene_data[s].swing == 56);
-    for (int st = 0; st < 32; st += 4) CHECK(p.scene_data[1].track[0].step[st].on == 1);
-    for (int st : {4, 12, 20, 28}) CHECK(p.scene_data[1].track[4].step[st].on == 1);
+    for (int s = 0; s < kScenes; ++s) CHECK(p.scene_data[s].length == 32 && p.scene_data[s].swing == 54);
+    for (int st : {4, 12, 20, 28}) CHECK(p.scene_data[1].track[4].step[st].on == 1 && p.scene_data[0].track[4].step[st].on == 0);
     CHECK(p.scene_data[2].track[0].step[4].on == 0);   // the break has no kick
+    CHECK(p.scene_data[0].track[1].step[0].on == 0);   // no snare in the intro (shot_seqmix paints KICK / SNARE there)
     {
         int gates[kScenes] = {};
         for (int s = 0; s < kScenes; ++s)
@@ -152,18 +153,20 @@ int main()
                 if (!b.gate) continue;
                 ++gates[s];
                 CHECK(b.note >= kBassNoteMin && b.note <= kBassNoteMax && st < 32);
-                static const int kMinor[] = {0, 2, 3, 5, 7, 8, 10};   // G natural minor, relative to G
+                static const int kMinor[] = {0, 2, 3, 5, 7, 8, 10};   // A natural minor, relative to A (C2 + 9)
                 bool in = false;
-                for (int d : kMinor) in = in || (((b.note - 7) % 12 + 12) % 12) == d;
+                for (int d : kMinor) in = in || (((b.note - 9) % 12 + 12) % 12) == d;
                 CHECK(in);
             }
-        CHECK(gates[0] == 0 && gates[1] > 16 && gates[2] > 16 && gates[3] > 16);
+        CHECK(gates[0] == 0 && gates[1] > 16 && gates[2] > 10 && gates[3] > 16);
     }
-    CHECK(p.song.slot[0] == 0 && p.song.slot[2] == 1 && p.song.slot[9] == 1 && p.song.slot[10] == -1 && !p.song.follow);
-    CHECK(p.g[GP_BASS_DRIVE] > 0.5f && p.g[GP_BASS_RESO] > 0.7f);
-    // 0.4.9: SYNTH chord stabs only in the full part D (G minor triads), the PLUCK patch, bus 7 named SYNTH
+    CHECK(p.song.slot[0] == 0 && p.song.slot[2] == 1 && p.song.slot[8] == 1 && p.song.slot[9] == 0 &&
+          p.song.slot[10] == -1 && !p.song.follow);
+    CHECK(p.g[GP_BASS_RESO] > 0.6f && p.g[GP_BASS_DRIVE] < 0.6f);
+    // the SYNTH plays every part (A minor): A 4 held triads, B 8 triad stabs, C a 16-note arpeggio, D a 16-note hook
+    // with 4 dyads; the BRASS patch, bus 7 named SYNTH
     {
-        int chords[kScenes] = {};
+        int chords[kScenes] = {}, singles[kScenes] = {}, dyads[kScenes] = {};
         for (int s = 0; s < kScenes; ++s)
             for (int st = 0; st < kMaxSteps; ++st) {
                 int n = 0;
@@ -171,17 +174,21 @@ int main()
                     if (!sn.note) continue;
                     ++n;
                     CHECK(sn.note >= kSynthNoteMin && sn.note <= kSynthNoteMax && sn.vel >= 1 && sn.len >= 1);
-                    static const int kMinor[] = {0, 2, 3, 5, 7, 8, 10};
+                    static const int kMinor[] = {0, 2, 3, 5, 7, 8, 10};   // A natural minor (MIDI: A = 9)
                     bool in = false;
-                    for (int d : kMinor) in = in || (((sn.note - 7) % 12 + 12) % 12) == d;
+                    for (int d : kMinor) in = in || (((sn.note - 9) % 12 + 12) % 12) == d;
                     CHECK(in);
                 }
-                if (n) ++chords[s];
-                CHECK(n == 0 || n == 3);
+                if (n == 3) ++chords[s];
+                if (n == 2) ++dyads[s];
+                if (n == 1) ++singles[s];
+                CHECK(n <= 3);
             }
-        CHECK(chords[0] == 0 && chords[1] == 0 && chords[2] == 0 && chords[3] == 8);
+        CHECK(chords[0] == 4 && chords[1] == 8 && chords[2] == 0 && chords[3] == 0);
+        CHECK(singles[0] == 0 && singles[1] == 0 && singles[2] == 16 && singles[3] == 16);
+        CHECK(dyads[0] == 0 && dyads[1] == 0 && dyads[2] == 0 && dyads[3] == 4);
         CHECK(p.g[GP_SYN_CUTOFF] != globalSpec(GP_SYN_CUTOFF).def || p.g[GP_SYN_A_DECAY] != globalSpec(GP_SYN_A_DECAY).def);
-        CHECK(p.g[GP_SYN_LEVEL] == -9.0f && (int)p.g[GP_SYN_BUS] == 6 && std::strcmp(p.bus[6].name, "SYNTH") == 0);
+        CHECK(p.g[GP_SYN_LEVEL] == -10.0f && (int)p.g[GP_SYN_BUS] == 6 && std::strcmp(p.bus[6].name, "SYNTH") == 0);
         SynthParams sp;
         synthFromGlobals(p.g, sp);
         CHECK(sp.level > 0.3f && sp.level < 0.4f && sp.cutoff > 0.0f && sp.cutoff < 1.0f);

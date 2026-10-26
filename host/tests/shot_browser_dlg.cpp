@@ -1134,7 +1134,7 @@ static void projectTests()
     shot("dlg_project");
     CHECK(findLabel("PROJECT MANAGER") != nullptr, "project manager open");
     CHECK(findLabel("ORBIT_01") != nullptr, "current project card");
-    CHECK(findLabel("16 pads \xE2\x80\xA2 4 scenes \xE2\x80\xA2 111 BPM", true) != nullptr, "card info line");
+    CHECK(findLabel("16 pads \xE2\x80\xA2 4 scenes \xE2\x80\xA2 124 BPM", true) != nullptr, "card info line");
     CHECK(findLabel("\xE2\x97\x8F unsaved changes") != nullptr, "dirty marker");
     CHECK(findLabel("NEON_DRAFT") && findLabel("LIVE_SESSION_02") && findLabel("EMPTY_PROJECT"), "saved projects listed");
 

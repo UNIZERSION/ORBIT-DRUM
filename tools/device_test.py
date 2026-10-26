@@ -300,13 +300,13 @@ def t_transport(d, rep, out):
 
 
 def t_demo(d, rep, out):
-    """0.4.7: every start opens the one demo (111 BPM, scene B = 909 groove + the 303 line). Run it first."""
+    """Every start opens the one demo (0.4.9: "ORBIT DRIVE", 124 BPM; scene B = groove + the 303 line). Run it first."""
     print("demo")
     if d.state().get("playing") == 1:   # left playing by an earlier run
         d.tap(*PLAY)
         time.sleep(0.5)
     s = d.state()
-    rep.check("demo tempo 111 BPM", abs(s.get("bpm", 0) - 111.0) < 0.05, "bpm=%s" % s.get("bpm"))
+    rep.check("demo tempo 124 BPM", abs(s.get("bpm", 0) - 124.0) < 0.05, "bpm=%s" % s.get("bpm"))
     d.tap(*tab("sequence"))
     time.sleep(0.6)
     d.tap(320 + 1 * 29 + 12, 621)   # scene B
@@ -333,7 +333,7 @@ def t_demo(d, rep, out):
     rep.check("demo stops", d.state().get("playing") == 0)
     d.tap(*tab("sequence"))
     time.sleep(0.6)
-    # 0.4.9: scene D adds SYNTH chord stabs (3 notes each, 4 chords a bar); the synth's cost shows in cpu
+    # 0.4.9: scene D: the SYNTH hook (16 notes) and dyads over the drums and the 303; the synth's cost shows in cpu
     d.tap(320 + 3 * 29 + 12, 621)   # scene D
     time.sleep(0.5)
     a0 = d.audio()
@@ -346,7 +346,7 @@ def t_demo(d, rep, out):
         time.sleep(0.2)
     a = d.audio()
     x1 = d.state().get("xruns", 0)
-    rep.check("SYNTH chords play in scene D", a.get("synth_notes", 0) - a0.get("synth_notes", 0) >= 9,
+    rep.check("SYNTH plays in scene D", a.get("synth_notes", 0) - a0.get("synth_notes", 0) >= 9,
               "synth notes %s -> %s" % (a0.get("synth_notes"), a.get("synth_notes")))
     rep.check("scene D (drums + bass + synth): no dropouts, cpu peak below 90 %", x1 == x0 and cpu < 0.9,
               "xruns %s -> %s, cpu peak %.3f" % (x0, x1, cpu))

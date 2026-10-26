@@ -694,7 +694,7 @@ static void shotsExtras()
     CHECK(a.project().song.follow == 1, "follow on");
     nav(View::Sequence);
     a.play();
-    runAudio(4800);   // slot 0 (A, 2 bars at 111 BPM = 4.3 s) -> slot 1
+    runAudio(4800);   // slot 0 (A, 2 bars at 124 BPM = 3.9 s) -> slot 1
     CHECK(a.playing() && a.songSlot() >= 1, "song slot %d", a.songSlot());
     shot("song-follow");
     a.stop();

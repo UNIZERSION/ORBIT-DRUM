@@ -104,7 +104,7 @@ struct Rig {
 
     explicit Rig(int r = 48000, bool clear_scenes = false) : rate(r)
     {
-        // cleared scenes: the defaults without the demo (0.4.6: its 111 BPM, 2-bar scenes and 303 sound too)
+        // cleared scenes: the defaults without the demo (its tempo, 2-bar scenes and 303 sound too)
         if (clear_scenes) projectEmpty(prj);
         else projectDefaults(prj);
         prj.g[GP_MASTER] = 0.0f;  // level checks below assume a 0 dB master (default is -1 dB headroom)
@@ -528,6 +528,7 @@ static void testFx()
     printf("[fx send]\n");
     auto tail = [](float send, float dly_level, float rev_level, std::vector<float>* keep) {
         Rig& r = *newRig();
+        r.prj.bpm = 120.0f;   // the echo times below (not the demo's tempo)
         r.load(0, noise(0.05, 48000, 0.7), 0);
         r.prj.pad[0].p[PP_SEND] = send;
         r.prj.g[GP_DLY_LEVEL] = dly_level;
