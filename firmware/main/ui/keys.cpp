@@ -11,12 +11,13 @@
 //   Up / Down     previous / next scene (Live: scene selection; ORBIT switches at once, on the bar while playing)
 //   Enter         play the selected scene (Live: launch)    Left / Right previous / next pad (Live: track)
 //   F1..F8        mute pads 1..8 of the shown bank (Live: track activators)   0  mute the selected pad (Live)
-//   F11           maximize the work area (BASS: the whole screen) (Live: full screen)
+//   F11           maximize the work area (BASS, SYNTH: the whole screen) (Live: full screen)
 //   Ctrl+Alt+B    BROWSER, Ctrl+Alt+M MIXER (Live: show the browser / the mixer)
 //   computer MIDI keyboard (Live, M turns it on / off): A W S E D F T G Y H U J K O L P ; '
 //                 = semitones from C. In BASS: the bass (KEYS range, ACCENT, SLIDE: legato when keys overlap).
+//                 In SYNTH: the synth (KEYS range and VEL; keys held together sound together).
 //                 Elsewhere: pads 1..16 (A = pad 1, W = pad 2 ... P = pad 16, like a Drum Rack).
-//   Z / X         octave down / up (the bass range)         C / V  velocity -20 / +20 (pads)
+//   Z / X         octave down / up (the bass range; in SYNTH the synth's)   C / V  velocity -20 / +20 (pads)
 #include <ctype.h>
 #include <stdio.h>
 #include <string.h>
@@ -36,16 +37,20 @@ int s_vel = 100;             // pad velocity (Live: C / V)
 int s_held = 0;              // note keys down since the last release
 uint32_t s_pads_held = 0;    // pads started by note keys (released on Release)
 bool s_bass_held = false;
+uint8_t s_syn_notes[sizeof kNotes];   // synth notes started by note keys (released on Release)
+int s_syn_n = 0;
 
 // tab order on the top bar
-const View kTabs[] = {View::Sample, View::Sequence, View::Bass, View::Mixer, View::Browser, View::Fx};
+const View kTabs[] = {View::Sample, View::Sequence, View::Bass, View::Synth, View::Mixer, View::Browser, View::Fx};
+constexpr int kTabCount = (int)(sizeof kTabs / sizeof kTabs[0]);
+static_assert(kTabCount == (int)View::Count, "every view has a tab");
 
 void stepView(int d)
 {
     const View cur = app().ui().view;
     int i = 0;
-    while (i < 6 && kTabs[i] != cur) ++i;
-    app().setView(kTabs[(i + d + 6) % 6]);
+    while (i < kTabCount && kTabs[i] != cur) ++i;
+    app().setView(kTabs[(i + d + kTabCount) % kTabCount]);
 }
 
 void releaseNotes()
@@ -55,12 +60,22 @@ void releaseNotes()
     s_pads_held = 0;
     if (s_bass_held) app().bassKeyOff(Producer::Ui);
     s_bass_held = false;
+    for (int i = 0; i < s_syn_n; ++i) app().synthKeyOff(s_syn_notes[i], Producer::Ui);
+    s_syn_n = 0;
     s_held = 0;
 }
 
 void noteKey(int semi)
 {
-    if (app().ui().view == View::Bass) {
+    if (app().ui().view == View::Synth) {
+        const int note = view_synth::liveBase() + semi;
+        bool held = false;
+        for (int i = 0; i < s_syn_n; ++i) held = held || s_syn_notes[i] == note;
+        if (!held && note >= kSynthNoteMin && note <= kSynthNoteMax && s_syn_n < (int)sizeof s_syn_notes) {
+            app().synthKeyOn(note, view_synth::liveVel(), Producer::Ui);
+            s_syn_notes[s_syn_n++] = (uint8_t)note;
+        }
+    } else if (app().ui().view == View::Bass) {
         const bool legato = s_bass_held && view_bass::liveSlide();
         app().bassKeyOn(view_bass::liveBase() + semi, view_bass::liveAccent(), legato, Producer::Ui);
         s_bass_held = true;
@@ -73,14 +88,17 @@ void noteKey(int semi)
 
 void octave(int d)
 {
-    view_bass::setLiveBase(view_bass::liveBase() + 12 * d);
+    // the pads have no octaves: Z / X move the synth's keyboards in SYNTH, else the bass keyboard (named so outside
+    // BASS too)
+    const bool syn = app().ui().view == View::Synth;
+    if (syn) view_synth::setLiveBase(view_synth::liveBase() + 12 * d);
+    else view_bass::setLiveBase(view_bass::liveBase() + 12 * d);
     char lo[16], hi[16];
     static const char* const kN[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
-    const int b = view_bass::liveBase();
+    const int b = syn ? view_synth::liveBase() : view_bass::liveBase();
     snprintf(lo, sizeof lo, "%s%d", kN[b % 12], b / 12 - 1);
     snprintf(hi, sizeof hi, "%s%d", kN[(b + 24) % 12], (b + 24) / 12 - 1);
-    // the pads have no octaves: Z / X always move the bass keyboard (named so outside BASS too)
-    app().toast("BASS OCTAVE: %s \xE2\x80\x93 %s", lo, hi);
+    app().toast("%s OCTAVE: %s \xE2\x80\x93 %s", syn ? "SYNTH" : "BASS", lo, hi);
 }
 
 void undo()
@@ -98,7 +116,7 @@ void undo()
 
 void toggleMax()
 {
-    if (app().ui().view == View::Bass) panelToggleMaxEx(Panel::Work, true);
+    if (app().ui().view == View::Bass || app().ui().view == View::Synth) panelToggleMaxEx(Panel::Work, true);
     else panelToggleMaxEx(Panel::Work, false);
 }
 

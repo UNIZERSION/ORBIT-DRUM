@@ -1411,6 +1411,41 @@ static void testSynth()
         }
         CHECK(!cut, "repeated note: the older note's off does not cut the retriggered one");
     }
+    // 0.4.9: a held live note and a line note of the same pitch: the line's off leaves the held note sounding,
+    // the live off leaves the line note to its own end
+    {
+        Rig& q = *newRig(48000, true);
+        q.prj.g[GP_SYN_SEND] = 0.0f;
+        q.prj.g[GP_SYN_A_RELEASE] = 5.0f;
+        q.prj.g[GP_SYN_A_SUSTAIN] = 0.8f;
+        SynthNote& n = q.prj.scene_data[0].synth.step[0].n[0];
+        n.note = 64;
+        n.vel = 100;
+        n.len = 1;   // ends at ~117 ms
+        q.cmd(CmdType::SynthNote, 0, 100, 64);
+        q.cmd(CmdType::Play);
+        q.render(q.ms(300));
+        CHECK(peakAbs(q.L, q.pos() - q.ms(60), q.pos()) > 0.01, "held live note outlives the line note (%.5f)",
+              peakAbs(q.L, q.pos() - q.ms(60), q.pos()));
+        q.cmd(CmdType::SynthOff, 0, 0, 64);
+        q.render(q.ms(100));
+        CHECK(peakAbs(q.L, q.pos() - q.ms(50), q.pos()) < 1e-3, "live off ends it");
+        q.cmd(CmdType::Stop);
+        q.render(q.ms(50));
+        // the other way: a line note (16 steps) with a short live note of its pitch inside it
+        n.len = 16;
+        q.cmd(CmdType::Play);
+        q.render(q.ms(100));
+        q.cmd(CmdType::SynthNote, 0, 100, 64);
+        q.render(q.ms(50));
+        q.cmd(CmdType::SynthOff, 0, 0, 64);
+        q.render(q.ms(200));
+        CHECK(peakAbs(q.L, q.pos() - q.ms(60), q.pos()) > 0.01, "a live off leaves the line note sounding (%.5f)",
+              peakAbs(q.L, q.pos() - q.ms(60), q.pos()));
+        q.cmd(CmdType::Stop);
+        q.render(q.ms(100));
+        CHECK(peakAbs(q.L, q.pos() - q.ms(50), q.pos()) < 1e-3, "stop ends the line note");
+    }
 }
 
 static void testBass()

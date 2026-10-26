@@ -25,10 +25,12 @@ Current version: **0.4.9**. Polish manual and version history: [docs/INSTRUKCJA_
   line per scene, from C0 to C5. Edit it on a step keyboard or by drawing notes on the line.
   **KEYS** mode: a two-octave live keyboard played with several fingers (OCT ± from C0 up to C7). The newest key
   sounds, and lifting it returns to the key still held; with SLIDE the notes glide like a 303. Nothing is recorded.
-- **SYNTH** (0.4.9, its editing view comes next): a 4-voice virtual-analog synth in the manner of a SYSTEM-1 (two
-  oscillators with COLOR, sync, ring and cross-mod, sub and noise, -24 / -12 dB filters, two envelopes, LFO, POLY /
-  MONO / UNISON, 8 factory patches). Every scene has a synth note line (chords of up to 4 notes, each with its own
-  length) that plays with the drums and the bass on mixer channel 7.
+- **SYNTH** (0.4.9): a 4-voice virtual-analog synth in the manner of a SYSTEM-1 (two oscillators with COLOR, sync,
+  ring and cross-mod, sub and noise, -24 / -12 dB filters, two envelopes, LFO, POLY / MONO / UNISON, 8 factory
+  patches). Every scene has a synth note line (chords of up to 4 notes, each with its own length) that plays with the
+  drums and the bass on mixer channel 7. The **SYNTH** view: a piano roll of the bar over two octaves; pick a step and
+  tap keys to add or remove its chord's notes (LEN, VEL); 48 knobs on six pages (OSC 1, OSC 2, FILTER, ENV, LFO,
+  VOICE) and the factory patches; **KEYS**: a two-octave live keyboard, every finger sounds (chords), not recorded.
 - **Performance** (0.4.9, the sound bit-identical to before): the SYNTH renders on the second CPU core while the
   drums render; the reverb's delay lines live in internal RAM and the display's draw buffers in PSRAM (the reverb
   costs half, the UI draws faster); the pads redraw only what changes. The dense demo scene D takes ~48 % of the audio

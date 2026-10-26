@@ -1040,6 +1040,18 @@ void buildEdit()
     lv_obj_add_event_cb(v.keys, keysEvent, LV_EVENT_DELETE, nullptr);
 }
 
+// The work panel is rebuilt (maximize / restore): the view goes, maybe for a while (a maximized work area builds
+// only the views shown). Its root goes first (LVGL sends DELETE to a parent before its children): the audition and
+// the keyboard zone end here, and nothing outside (keys.cpp: setLiveBase) touches the objects any more (0.4.9:
+// Z / X in another maximized view did).
+void rootDeleted(lv_event_t* e)
+{
+    if (lv_event_get_target(e) != v.root) return;
+    if (v.key_down >= 0) app().bassRelease();
+    if (v.kb_pub) kbSet(false, v.kb_area);
+    v = View{};
+}
+
 // Only the shown mode's layer is built (create(), the KEYS toggle): both made the view twice as slow to build
 // on the Tab5 (maximize 220 ms instead of 121). Inside a maximized view it is laid out at the view's scale.
 void ensureLayer(bool live)
@@ -1107,6 +1119,7 @@ lv_obj_t* create(lv_obj_t* work)
         v.knob[i] = k;
     }
 
+    lv_obj_add_event_cb(v.root, rootDeleted, LV_EVENT_DELETE, nullptr);
     v.sel = curPage() * kStepsPerPage;
     v.notes_seen = app().bassNotes();
     v.drawn_valid = false;

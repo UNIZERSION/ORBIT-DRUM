@@ -704,12 +704,13 @@ void touchGeometry()
     }
 }
 
-// The touch task's hook: every sample goes to the pads and to the BASS KEYS keyboard (each takes the fingers
-// that came down on it).
+// The touch task's hook: every sample goes to the pads and to the BASS and SYNTH KEYS keyboards (each takes the
+// fingers that came down on it).
 static void touchRouter(const hal::TouchPoint* pts, int n, void*)
 {
     touchHook(pts, n, nullptr);
     view_bass::touchInput(pts, n);
+    view_synth::touchInput(pts, n);
 }
 
 void installTouchHook()

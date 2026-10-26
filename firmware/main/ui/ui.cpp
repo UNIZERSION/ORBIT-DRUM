@@ -33,6 +33,7 @@ const ViewFns kViews[(int)View::Count] = {
     {view_browser::create, view_browser::refresh, view_browser::onShow},
     {view_fx::create, view_fx::refresh, view_fx::onShow},
     {view_bass::create, view_bass::refresh, view_bass::onShow},
+    {view_synth::create, view_synth::refresh, view_synth::onShow},
 };
 
 lv_obj_t* s_work = nullptr;
@@ -43,7 +44,8 @@ lv_timer_t* s_timer = nullptr;
 uint32_t s_period = 16;
 uint32_t s_ticks = 0;
 // Views not needed for the first frame are created after it, one at a time (or at once when shown first).
-const View kBackgroundOrder[] = {View::Sequence, View::Browser, View::Mixer, View::Fx, View::Bass, View::Sample};
+const View kBackgroundOrder[] = {View::Sequence, View::Browser, View::Mixer, View::Fx, View::Bass, View::Synth,
+                                 View::Sample};
 
 lv_obj_t* s_scr = nullptr;
 
@@ -94,6 +96,7 @@ void showView(int v, bool animate)
     if (s_shown >= 0 && s_shown != v && s_view_obj[s_shown]) {
         lv_obj_add_flag(s_view_obj[s_shown], LV_OBJ_FLAG_HIDDEN);
         if (s_shown == (int)View::Bass) view_bass::onHide();   // its KEYS keyboard stops playing
+        if (s_shown == (int)View::Synth) view_synth::onHide();
     }
     const bool changed = s_shown != v;
     s_shown = v;
@@ -142,9 +145,10 @@ void tickCb(lv_timer_t* t)
     if (a.revs().view != s_view_rev) {
         s_view_rev = a.revs().view;
         const int v = (int)a.ui().view;
-        // The whole screen belongs to the BASS view (its own button brings the top bar back): another view
-        // (e.g. chosen from outside the screen) restores everything first.
-        if (v != s_shown && v != (int)View::Bass && panelMaxedFull()) panelToggleMax(Panel::Work);
+        // The whole screen belongs to the BASS and SYNTH views (their own button brings the top bar back): another
+        // view (e.g. chosen from outside the screen) restores everything first.
+        if (v != s_shown && v != (int)View::Bass && v != (int)View::Synth && panelMaxedFull())
+            panelToggleMax(Panel::Work);
         if (v != s_shown) showView(v, true);
     }
     if (s_shown >= 0) kViews[s_shown].refresh();

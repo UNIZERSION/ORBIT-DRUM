@@ -51,10 +51,11 @@ bool panelMaxedFull();                                 // a panel covers the who
 lv_obj_t* panelRoot(Panel p);                          // the panel's current root object (tests)
 
 // Persistent panels
-namespace topbar   { lv_obj_t* create(lv_obj_t* scr); void refresh(); }
+// tabCenterX(v): the centre x of view v's tab (0.4.9: seven tabs as wide as their names; tests).
+namespace topbar   { lv_obj_t* create(lv_obj_t* scr); void refresh(); int tabCenterX(View v); }
 // touchGeometry(): the touch task's pad rectangles follow the drawn panel (after a maximize / restore).
 // installTouchHook(): the touch task's hook hands every sample to pads::touchInput and
-// view_bass::touchInput (0.4.3: the BASS KEYS keyboard with several fingers).
+// view_bass::touchInput (0.4.3: the BASS KEYS keyboard with several fingers) and view_synth::touchInput (0.4.9).
 // setCulling (0.4.9): draw only what reaches the redrawn area (default on; off = the old way, A/B measurements);
 // invalidateForTest(i): pad i's redraw area (PC tests).
 // setDebugSkip: diagnostics only, parts left out (1 images, 2 hit rings, 4 tints, 8 labels) to time the rest.
@@ -76,6 +77,11 @@ namespace view_fx       { lv_obj_t* create(lv_obj_t* work); void refresh(); void
 namespace view_bass     { lv_obj_t* create(lv_obj_t* work); void refresh(); void onShow(); void onHide();
                           void touchInput(const hal::TouchPoint* pts, int n); bool keysOn();
                           int liveBase(); bool liveAccent(); bool liveSlide(); void setLiveBase(int midi); }
+// SYNTH (0.4.9): knob pages, the scene's chord line, KEYS (several fingers). liveBase(): the lowest key of the
+// keyboards (MIDI), liveVel(): VEL of the live keys; the physical keyboard plays the synth with them.
+namespace view_synth    { lv_obj_t* create(lv_obj_t* work); void refresh(); void onShow(); void onHide();
+                          void touchInput(const hal::TouchPoint* pts, int n); bool keysOn();
+                          int liveBase(); int liveVel(); void setLiveBase(int midi); }
 
 // Physical keyboard (0.4.6, keys.cpp): the M5Stack Tab5 Keyboard with Ableton Live's shortcuts. poll(): every UI
 // tick; handle(): one key (the test console and the PC tests inject through hal::kbdInject, then poll).

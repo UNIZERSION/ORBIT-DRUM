@@ -253,6 +253,24 @@ private:
     SynthParams synth_p_;
     SynthOffPending synth_off_[kSynthOffs];
     int nsynth_off_ = 0;
+    // Live notes held (keyboard, MIDI; bit = MIDI note). The synth ends notes by pitch, so a line note and a held
+    // live note of the same pitch share a voice: the line's off leaves a held note alone, and a live off leaves a
+    // line note still pending to its own off (0.4.9).
+    uint32_t syn_live_[4] = {};
+    bool synLive(int note) const { return (syn_live_[(note >> 5) & 3] >> (note & 31)) & 1u; }
+    void synLiveSet(int note, bool on)
+    {
+        const uint32_t bit = 1u << (note & 31);
+        if (on) syn_live_[(note >> 5) & 3] |= bit;
+        else syn_live_[(note >> 5) & 3] &= ~bit;
+    }
+    void synLiveClear() { syn_live_[0] = syn_live_[1] = syn_live_[2] = syn_live_[3] = 0; }
+    bool synLinePending(int note) const
+    {
+        for (int i = 0; i < nsynth_off_; ++i)
+            if (synth_off_[i].note == note) return true;
+        return false;
+    }
     float syn_l_[kRenderBlock];
     float syn_r_[kRenderBlock];
     // the render job (synthJob: on the helper core in dual mode). While syn_stalled_ (a job the helper did not
@@ -287,6 +305,7 @@ bool EngineImpl::init(int rate_hz, const Project* project)
     bass_queued_ = false;
     synth_.init(rate_hz);
     nsynth_off_ = 0;
+    synLiveClear();
     syn_gvalid_ = false;
     syn_stalled_ = false;
     helper_ok_ = helperStart();
@@ -386,17 +405,28 @@ ORBIT_HOT bool EngineImpl::handleCommand(const Command& c)
         scheduleBass(e);
         if (!syn_stalled_) synth_.panic();
         nsynth_off_ = 0;
+        synLiveClear();
         return true;
     }
-    case CmdType::SynthNote:
+    case CmdType::SynthNote: {
         if (syn_stalled_) return true;
-        if (synth_.noteOn((uint8_t)clampi((int)c.value, 0, 127), (uint8_t)clampi(c.vel, 1, 127), 0))
+        const int note = clampi((int)c.value, 0, 127);
+        if (synth_.noteOn((uint8_t)note, (uint8_t)clampi(c.vel, 1, 127), 0)) {
             tel.synth_notes.fetch_add(1, std::memory_order_relaxed);
+            synLiveSet(note, true);
+        }
         return true;
+    }
     case CmdType::SynthOff:
         if (syn_stalled_) return true;
-        if (c.value < 0) synth_.allNotesOff(0);
-        else synth_.noteOff((uint8_t)clampi((int)c.value, 0, 127), 0);
+        if (c.value < 0) {
+            synth_.allNotesOff(0);
+            synLiveClear();
+        } else {
+            const int note = clampi((int)c.value, 0, 127);
+            synLiveSet(note, false);
+            if (!synLinePending(note)) synth_.noteOff((uint8_t)note, 0);   // else the line note's own off ends it
+        }
         return true;
     case CmdType::BassNote: {
         AcidEvent e;
@@ -980,7 +1010,7 @@ void EngineImpl::synthLineNote(const SeqNotice::SynthNoteOn& e, int n)
     if (!synth_.noteOn(e.note, e.vel, (int)off)) return;   // the synth's queue is full: dropped
     tel.synth_notes.fetch_add(1, std::memory_order_relaxed);
     if (nsynth_off_ == kSynthOffs) {   // full (more than 32 overlapping line notes): end the oldest now
-        synth_.noteOff(synth_off_[0].note, 0);
+        if (!synLive(synth_off_[0].note)) synth_.noteOff(synth_off_[0].note, 0);
         for (int i = 1; i < nsynth_off_; ++i) synth_off_[i - 1] = synth_off_[i];
         --nsynth_off_;
     }
@@ -989,7 +1019,8 @@ void EngineImpl::synthLineNote(const SeqNotice::SynthNoteOn& e, int n)
 
 void EngineImpl::synthLineOff()
 {
-    for (int i = 0; i < nsynth_off_; ++i) synth_.noteOff(synth_off_[i].note, 0);
+    for (int i = 0; i < nsynth_off_; ++i)
+        if (!synLive(synth_off_[i].note)) synth_.noteOff(synth_off_[i].note, 0);   // a held live note plays on
     nsynth_off_ = 0;
 }
 
@@ -1002,7 +1033,7 @@ ORBIT_HOT bool EngineImpl::synthBegin(int n)
     for (int i = 0; i < nsynth_off_; ++i) {
         SynthOffPending& o = synth_off_[i];
         if (o.left < (uint32_t)n) {
-            synth_.noteOff(o.note, (int)o.left);
+            if (!synLive(o.note)) synth_.noteOff(o.note, (int)o.left);   // a held live note plays on
         } else {
             o.left -= (uint32_t)n;
             synth_off_[w++] = o;
@@ -1329,6 +1360,7 @@ ORBIT_HOT void EngineImpl::processBlock(float* l, float* r, int n)
         syn_stalled_ = false;              // (note-offs may have been dropped meanwhile)
         synth_.allNotesOff(0);
         nsynth_off_ = 0;
+        synLiveClear();
     }
     updatePadCache();
     drainCommands();

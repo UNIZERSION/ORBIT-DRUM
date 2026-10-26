@@ -1,4 +1,4 @@
-// Top bar (#light-top): logo, view navigation (SAMPLE / SEQUENCE / MIXER / BROWSER / FX),
+// Top bar (#light-top): logo, view navigation (SAMPLE / SEQUENCE / BASS / SYNTH / MIXER / BROWSER / FX),
 // PROJECT MANAGER + SETTINGS icons, the live tempo block and the PLAY / REC / ? actions.
 // Its gradient and bottom line are part of the baked background (ui_bg.cpp); the bar itself
 // is a transparent container. Refreshes on revs.view / revs.transport / revs.project.
@@ -24,12 +24,24 @@ namespace orbit::ui::topbar {
 
 namespace {
 
-// Six view tabs since 0.3 (BASS): 84 px wide, 8 apart (the prototype's five were 90 / 9).
-constexpr int kNavX = 377, kNavY = 13, kNavW = 84, kNavH = 35, kNavGap = 8;
+// Seven view tabs since 0.4.9 (SYNTH), as wide as their names (8 px or more each side, at least 64 px), 6 apart, in
+// the room the six 84 px tabs had (0.3: six, 84 / 8; the prototype's five were 90 / 9): the maximize button stays.
+constexpr int kNavX = 377, kNavY = 13, kNavH = 35, kNavGap = 6;
+constexpr int kNavW[(int)View::Count] = {72, 92, 64, 64, 64, 86, 64};   // in tab order
+constexpr int kWmaxX = 931;                                            // the work area's maximize button
 constexpr int kActX = 1153, kActY = 14, kActW = 36, kActH = 33, kActGap = 4;   // 0.4.6: 32 / 5 were too tight
-// Tab order (left to right) -> view; BASS sits next to SEQUENCE.
-const View kNavView[(int)View::Count] = {View::Sample, View::Sequence, View::Bass, View::Mixer, View::Browser, View::Fx};
-const char* const kNavNames[(int)View::Count] = {"SAMPLE", "SEQUENCE", "BASS", "MIXER", "BROWSER", "FX"};
+// Tab order (left to right) -> view; BASS and SYNTH sit next to SEQUENCE.
+const View kNavView[(int)View::Count] = {View::Sample, View::Sequence, View::Bass,  View::Synth,
+                                         View::Mixer,  View::Browser,  View::Fx};
+const char* const kNavNames[(int)View::Count] = {"SAMPLE", "SEQUENCE", "BASS", "SYNTH", "MIXER", "BROWSER", "FX"};
+
+constexpr int navTabX(int i)   // left edge of tab i (tab order)
+{
+    int x = kNavX;
+    for (int k = 0; k < i; ++k) x += kNavW[k] + kNavGap;
+    return x;
+}
+static_assert(navTabX((int)View::Count - 1) + kNavW[(int)View::Count - 1] + 8 <= kWmaxX, "tabs reach the maximize button");
 
 lv_obj_t* s_bar = nullptr;
 lv_obj_t* s_nav[(int)View::Count] = {};
@@ -100,6 +112,13 @@ lv_obj_t* actionButton(lv_obj_t* parent, int x, const char* glyph, const lv_font
 
 }  // namespace
 
+int tabCenterX(View v)
+{
+    for (int i = 0; i < (int)View::Count; ++i)
+        if (kNavView[i] == v) return navTabX(i) + kNavW[i] / 2;
+    return -1;
+}
+
 lv_obj_t* create(lv_obj_t* scr)
 {
     lv_obj_t* bar = lv_obj_create(scr);
@@ -133,8 +152,8 @@ lv_obj_t* create(lv_obj_t* scr)
     // box-shadow 0 2px 6px #ff663933.
     for (int i = 0; i < (int)View::Count; ++i) {
         const int view = (int)kNavView[i];
-        lv_obj_t* b = tabBtn(bar, kNavNames[i], kNavW, kNavH);
-        lv_obj_set_pos(b, kNavX + i * (kNavW + kNavGap), kNavY);
+        lv_obj_t* b = tabBtn(bar, kNavNames[i], kNavW[i], kNavH);
+        lv_obj_set_pos(b, navTabX(i), kNavY);
         lv_obj_set_style_bg_color(b, c(col::nav_btn), 0);
         lv_obj_set_style_border_color(b, c(col::nav_btn), 0);
         lv_obj_set_style_text_color(b, c(col::nav_text), 0);
@@ -153,7 +172,7 @@ lv_obj_t* create(lv_obj_t* scr)
     }
     // 0.3: maximize the work area (the view the tabs pick), right after the last tab.
     lv_obj_t* wmax = panelMaxButton(bar, Panel::Work);
-    lv_obj_set_pos(wmax, kNavX + (int)View::Count * (kNavW + kNavGap) + 2, kNavY + (kNavH - 26) / 2);
+    lv_obj_set_pos(wmax, kWmaxX, kNavY + (kNavH - 26) / 2);
     barTarget(wmax, 5, 10);
 
     // .lt-tools: folder (PROJECT MANAGER), gear (SETTINGS), separator, tempo block.

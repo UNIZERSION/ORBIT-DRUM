@@ -91,6 +91,17 @@ WEAK bool liveAccent() { return false; }
 WEAK bool liveSlide() { return true; }
 WEAK void setLiveBase(int) {}
 }  // namespace view_bass
+namespace view_synth {
+WEAK lv_obj_t* create(lv_obj_t* w) { return stubView(w, 6, "SYNTH VIEW (stub)"); }
+WEAK void refresh() {}
+WEAK void onShow() { ++g_on_show[6]; }
+WEAK void onHide() {}
+WEAK void touchInput(const hal::TouchPoint*, int) {}
+WEAK bool keysOn() { return false; }
+WEAK int liveBase() { return 60; }
+WEAK int liveVel() { return 100; }
+WEAK void setLiveBase(int) {}
+}  // namespace view_synth
 namespace keys {
 WEAK void poll() {}
 WEAK void handle(const hal::KeyEvent&) {}
@@ -261,15 +272,17 @@ static void testTopbar()
     // the shared press style): only the pressed nav button (+ its ripple / shadow) redraws.
     g_inv = 0;
     g_inv_out = 0;
-    // six tabs since 0.3: 84 px wide, 8 apart (SAMPLE SEQUENCE BASS MIXER BROWSER FX)
-    g_watch = {377 + 92 - 12, 13 - 12, 377 + 92 + 84 + 12, 13 + 35 + 12};
+    // seven tabs since 0.4.9, as wide as their names (SAMPLE SEQUENCE BASS SYNTH MIXER BROWSER FX); SEQUENCE: 92 px
+    const int seq_x = topbar::tabCenterX(View::Sequence);
+    CHECK(seq_x == 455 + 46);
+    g_watch = {seq_x - 46 - 12, 13 - 12, seq_x + 46 + 12, 13 + 35 + 12};
     g_watch_on = true;
-    lvhost_pointer(377 + 92 + 42, 30, true);   // SEQUENCE
+    lvhost_pointer(seq_x, 30, true);   // SEQUENCE
     lvhost_run(10);
     g_watch_on = false;
     const int first_press_inv = g_inv, first_press_out = g_inv_out;
     lvhost_run(50);
-    lvhost_pointer(377 + 92 + 42, 30, false);
+    lvhost_pointer(seq_x, 30, false);
     lvhost_run(100);
     printf("  first press after boot: %d invalidations, %d outside the button\n", first_press_inv, first_press_out);
     CHECK(first_press_out == 0);
@@ -280,11 +293,11 @@ static void testTopbar()
         CHECK(!lv_obj_has_flag(g_view_obj[1], LV_OBJ_FLAG_HIDDEN));
         CHECK(g_on_show[1] == show1 + 1);
     }
-    lvhost_tap(377 + 5 * 92 + 42, 30);   // FX
+    lvhost_tap(topbar::tabCenterX(View::Fx), 30);   // FX
     lvhost_run(50);
     CHECK(a.ui().view == View::Fx);
     if (!g_real) CHECK(!lv_obj_has_flag(g_view_obj[4], LV_OBJ_FLAG_HIDDEN));
-    lvhost_tap(377 + 42, 30);   // SAMPLE
+    lvhost_tap(topbar::tabCenterX(View::Sample), 30);   // SAMPLE
     lvhost_run(400);
     CHECK(a.ui().view == View::Sample);
     // folder / gear / help

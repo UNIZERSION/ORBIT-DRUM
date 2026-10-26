@@ -60,9 +60,11 @@ const Card kCards[kCardCount] = {
     {"2. Mute / Solo",
      "Turn on MUTE or SOLO in the PADS head and tap pads to mute or solo them (M / S mark on the pad). Tap the "
      "button again to go back to playing."},
-    {"3. Sequencer & bass",
+    {"3. Sequencer, bass & synth",
      "Tap a step or drag to paint; VELOCITY / PROBABILITY / MORE edit vertically. BASS: a 303 line from C0 to C5 "
-     "\xE2\x80\x94 pick a step and play a key, or draw notes; KEYS: two octaves live (several fingers), not recorded."},
+     "\xE2\x80\x94 pick a step and play a key, or draw notes. SYNTH: pick a step, a key adds or removes a note of "
+     "its chord (up to 4; LEN, VEL); knob pages OSC \xE2\x80\xA6 VOICE, PATCH. KEYS: two octaves live (several "
+     "fingers), not recorded."},
     {"4. Knobs & faders",
      "Drag vertically; double tap = default. VOLUME: output level (speaker, headphones and Bluetooth keep their "
      "own). Pad level: TRIM \xE2\x86\x92 PAD VOL."},
@@ -78,11 +80,11 @@ const Card kCards[kCardCount] = {
      "\xE2\x86\x92 OUTPUT. FX view: REVERB, DELAY, the LO-FI / WIDE / PUMP / SPACE macros and the limiter."},
     {"8. Project, SD & settings",
      "SAVE, NEW PROJECT (empty), DELETE, EXPORT JSON. The corner marks enlarge a panel (the main one: next to the "
-     "tabs; BASS: the whole screen); in the large BROWSER a category opens its files at once. Colors and "
+     "tabs; BASS, SYNTH: the whole screen); in the large BROWSER a category opens its files at once. Colors and "
      "Interface size: Settings \xE2\x86\x92 Display."},
     {"9. Tab5 Keyboard (like Live)",
      "Space play / stop, Shift+Space continue, F9 record, Tab / Shift+Tab next / previous view. A W S E D F T G Y "
-     "H U J K: notes (BASS: the 303, else the pads), Z / X octave, C / V velocity, M notes on / off."},
+     "H U J K: notes (BASS: the 303, SYNTH: the synth, else the pads), Z / X octave, C / V velocity, M notes on / off."},
     {"10. Keyboard: more keys",
      "Ctrl+Z undo, Ctrl+S save, Ctrl+O / Ctrl+N projects, Ctrl+, settings, Esc closes. F1\xE2\x80\x93" "F8 mute pads, "
      "Up / Down scene, Left / Right pad, 0 mutes the pad, F11 enlarges the work area, "

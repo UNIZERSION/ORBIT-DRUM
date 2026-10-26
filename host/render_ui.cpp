@@ -27,6 +27,7 @@
 #include <string>
 
 #include "core/platform.h"
+#include "core/synthmap.h"
 #include "hal/hal.h"
 #include "hal_host.h"
 #include "lvgl_host.h"
@@ -325,12 +326,8 @@ static const int kPadCx[4] = {25 + 30, 93 + 30, 162 + 30, 230 + 30};
 static const int kPadCy[4] = {118 + 31, 187 + 31, 255 + 31, 324 + 31};
 static int padX(int i) { return kPadCx[i & 3]; }
 static int padY(int i) { return kPadCy[i >> 2]; }
-// Six tabs since 0.3 (84 px, 8 apart), left to right SAMPLE SEQUENCE BASS MIXER BROWSER FX.
-static int navX(int v)
-{
-    static const int kSlot[(int)View::Count] = {0, 1, 3, 4, 5, 2};   // View -> tab position
-    return 377 + kSlot[v] * 92 + 42;
-}
+// Seven tabs since 0.4.9 (as wide as their names), left to right SAMPLE SEQUENCE BASS SYNTH MIXER BROWSER FX.
+static int navX(int v) { return topbar::tabCenterX((View)v); }
 static const int kNavY = 30;
 static int sceneX(int s) { return 320 + s * 29 + 12; }
 static const int kSceneY = 621;
@@ -465,6 +462,24 @@ static void shotsOtherViews()
     runAudio(100);
     shot("view-bass");
     CHECK(app().bassStep(0).gate == 1, "RANDOM puts a note on step 1");
+    // SYNTH (0.4.9): chords C Am F G, a long G, a note below and one above the two octaves (marks at the edges)
+    nav(View::Synth);
+    {
+        App& a = app();
+        const int chords[4][3] = {{60, 64, 67}, {57, 60, 64}, {65, 69, 72}, {67, 71, 74}};
+        for (int i = 0; i < 4; ++i) {
+            SynthStep st{};
+            for (int k = 0; k < 3; ++k) st.n[k] = SynthNote{(uint8_t)chords[i][k], 100, (uint8_t)(i == 3 ? 4 : 3), 0};
+            a.setSynthStep(i * 4, st);
+        }
+        SynthStep lo{}, hi{};
+        lo.n[0] = SynthNote{48, 90, 2, 0};
+        hi.n[0] = SynthNote{88, 90, 1, 0};
+        a.setSynthStep(2, lo);
+        a.setSynthStep(14, hi);
+    }
+    runAudio(100);
+    shot("view-synth");
 }
 
 static void shotsDialogs()
@@ -763,7 +778,7 @@ static void shotsBluetooth()
 static void smokeNav()
 {
     printf("smoke: nav buttons\n");
-    const View order[] = {View::Sequence, View::Bass, View::Mixer, View::Browser, View::Fx, View::Sample};
+    const View order[] = {View::Sequence, View::Bass, View::Synth, View::Mixer, View::Browser, View::Fx, View::Sample};
     for (View v : order) nav(v);
 }
 
@@ -882,7 +897,7 @@ static void smokeMaximize()
 
     // work area: the button after the last view tab (top bar, not scaled)
     nav(View::Sequence);
-    const int bx = 377 + (int)View::Count * 92 + 2 + 13, by = 13 + 4 + 13;
+    const int bx = 931 + 13, by = 13 + 4 + 13;   // (931: where the six 84 px tabs left it, 0.4.9)
     lvhost_tap(bx, by);
     runAudio(150);
     CHECK(panelMaxed() == Panel::Work, "work maximized");
@@ -930,9 +945,10 @@ static void smokeMaximize()
     runAudio(150);
     CHECK(panelMaxed() == Panel::Count && !panelMaxedFull(), "BASS back from the whole screen");
     // every other view in the maximized work area (built natively larger in the stand-in panel, ui.cpp createView)
-    const View views[] = {View::Sample, View::Mixer, View::Browser, View::Fx, View::Bass};
-    const char* const vnames[] = {"max-work-sample", "max-work-mixer", "max-work-browser", "max-work-fx", "max-work-bass"};
-    for (int i = 0; i < 5; ++i) {
+    const View views[] = {View::Sample, View::Mixer, View::Browser, View::Fx, View::Bass, View::Synth};
+    const char* const vnames[] = {"max-work-sample", "max-work-mixer", "max-work-browser",
+                                  "max-work-fx",     "max-work-bass",  "max-work-synth"};
+    for (int i = 0; i < 6; ++i) {
         nav(views[i]);
         panelToggleMax(Panel::Work);
         runAudio(120);
@@ -981,6 +997,235 @@ static void smokeMaximize()
 // 0.4.2: BASS KEYS. The head's KEYS toggle swaps the line / step row / step keyboard for a row (OCT - / +, ACCENT,
 // SLIDE, SAW / SQR) and a two-octave keyboard that only plays: nothing is written into the line. Moving the finger
 // to another key plays it (slides with SLIDE); OCT moves the range; the mode stays on the whole screen.
+static bool stepHas(const SynthStep& st, int note)
+{
+    for (const SynthNote& x : st.n)
+        if (x.note == note) return true;
+    return false;
+}
+
+// SYNTH (0.4.9): chords into the scene's line, knob pages, a patch, KEYS with several fingers, the whole screen.
+static void smokeSynth()
+{
+    App& a = app();
+    printf("smoke: SYNTH\n");
+    nav(View::Synth);
+    if (a.playing()) a.togglePlay();
+    a.setSeqPage(0);
+    runAudio(100);
+    const Box head = {329, 84, 1039, 121}, row = {329, 270, 1039, 304}, pages = {329, 396, 1039, 424};
+    const Box knobs = {311, 428, 1056, 558}, lrow = {329, 134, 1039, 168};
+    CHECK(findLabel("SYNTH / SCENE A", false, head) != nullptr, "SYNTH head");
+    CHECK(findLabel("C4 \xE2\x80\x93 C6", false, row) != nullptr, "range C4 - C6");
+    // step 6 of the bar (empty): tap its column on the roll
+    const int s = 5;
+    lvhost_tap(329 + s * 710 / 16 + 22, 200);
+    runAudio(60);
+    CHECK(a.synthStep(s).n[0].note == 0, "step 6 starts empty");
+    // the chord keyboard (15 white keys over 329..1039 x 310..389): low half, below the black keys
+    auto wx = [](int i) { return 329 + i * 710 / 15 + 710 / 30; };
+    const int ky = 310 + 66;
+    const uint32_t n0 = a.synthNotes();
+    lvhost_tap(wx(0), ky);   // C4
+    runAudio(60);
+    CHECK(a.synthStep(s).n[0].note == 60 && a.synthStep(s).n[0].len == 1 && a.synthStep(s).n[0].vel == 100,
+          "C4 into the step (note %d len %d vel %d)", a.synthStep(s).n[0].note, a.synthStep(s).n[0].len,
+          a.synthStep(s).n[0].vel);
+    CHECK(a.synthNotes() == n0 + 1, "the key plays its note (%u)", (unsigned)(a.synthNotes() - n0));
+    lvhost_tap(wx(2), ky);   // E4
+    lvhost_tap(wx(4), ky);   // G4
+    lvhost_tap(wx(7), ky);   // C5
+    runAudio(60);
+    auto count = [&](int st) {
+        int n = 0;
+        for (const SynthNote& x : a.synthStep(st).n) n += x.note ? 1 : 0;
+        return n;
+    };
+    CHECK(count(s) == 4, "four notes (%d)", count(s));
+    lvhost_tap(wx(9), ky);   // E5: a fifth note is refused
+    runAudio(60);
+    CHECK(count(s) == 4 && stepHas(a.synthStep(s), 60) && !stepHas(a.synthStep(s), 76), "at most 4 notes");
+    lvhost_tap(wx(2), ky);   // E4 again: out
+    runAudio(60);
+    CHECK(count(s) == 3 && !stepHas(a.synthStep(s), 64) && a.synthStep(s).n[0].note == 60, "E4 taken out (%d)",
+          count(s));
+    // LEN + twice: every note of the step rings 3 steps; VEL: 100 -> 127
+    CHECK(tapLabel("LEN +", row) && tapLabel("LEN +", row) && findLabel("LEN 3", false, row) != nullptr, "LEN 3");
+    CHECK(tapLabel("VEL", row, true) && findLabel("VEL 127", false, row) != nullptr, "VEL 127");
+    bool all = true;
+    for (const SynthNote& x : a.synthStep(s).n)
+        if (x.note) all = all && x.len == 3 && x.vel == 127;
+    CHECK(all, "LEN / VEL set the step's notes");
+    shot("view-synth-chord");
+    // the next step takes LEN / VEL for new notes
+    lvhost_tap(329 + (s + 1) * 710 / 16 + 22, 200);
+    runAudio(60);
+    CHECK(findLabel("LEN 3", false, row) != nullptr, "an empty step shows the LEN of new notes");
+    lvhost_tap(wx(14), ky);   // C6, the top key
+    runAudio(60);
+    CHECK(a.synthStep(s + 1).n[0].note == 84 && a.synthStep(s + 1).n[0].len == 3 && a.synthStep(s + 1).n[0].vel == 127,
+          "a new note takes LEN 3, VEL 127 (%d %d %d)", a.synthStep(s + 1).n[0].note, a.synthStep(s + 1).n[0].len,
+          a.synthStep(s + 1).n[0].vel);
+    CHECK(tapLabel("DEL", row) && count(s + 1) == 0, "DEL empties the step");
+    // OCT: the range of both keyboards (and the roll)
+    CHECK(tapLabel("OCT +", row) && findLabel("C5 \xE2\x80\x93 C7", false, row) != nullptr, "OCT + -> C5 - C7");
+    CHECK(tapLabel("OCT -", row) && findLabel("C4 \xE2\x80\x93 C6", false, row) != nullptr, "OCT - -> C4 - C6");
+    // knob pages
+    CHECK(findLabel("CUTOFF", false, knobs) != nullptr, "FILTER page first");
+    CHECK(tapLabel("ENV", pages) && findLabel("F ATTACK", false, knobs) && findLabel("A RELEASE", false, knobs),
+          "ENV page: both envelopes");
+    CHECK(tapLabel("OSC 2", pages) && findLabel("COARSE", false, knobs) && !findLabel("CUTOFF", false, knobs),
+          "OSC 2 page");
+    CHECK(tapLabel("FILTER", pages) && findLabel("CUTOFF", false, knobs), "back to FILTER");
+    // PATCH >: the first factory patch into the knobs
+    const char* p0 = synthPresetName(0);
+    CHECK(tapLabel(">", pages) && findLabel(p0, false, pages) != nullptr, "PATCH > -> %s", p0);
+    {   // a knob moved: the patch name gets a star; back to the patch's value: no star
+        const ParamRef cut = ParamRef::global(GP_SYN_CUTOFF);
+        const float c0 = a.paramGet(cut);
+        a.paramSet(cut, c0 * 0.5f);
+        runAudio(60);
+        char starred[48];
+        snprintf(starred, sizeof starred, "%s *", p0);
+        CHECK(findLabel(starred, false, pages) != nullptr, "a moved knob: '%s'", starred);
+        a.paramSet(cut, c0);
+        runAudio(60);
+        CHECK(findLabel(p0, false, pages) != nullptr, "the patch's value again: no star");
+    }
+    // the line plays its chord (step 6, three notes)
+    {
+        const uint32_t m0 = a.synthNotes();
+        a.togglePlay();
+        runAudio(400);
+        CHECK(a.synthNotes() >= m0 + 3, "the line plays the chord (%u)", (unsigned)(a.synthNotes() - m0));
+        shot("view-synth-play");
+        a.togglePlay();
+        runAudio(200);
+    }
+    // KEYS: the live keyboard, several fingers, nothing recorded
+    SynthStep line[kMaxSteps];
+    for (int i = 0; i < kMaxSteps; ++i) line[i] = a.synthStep(i);
+    CHECK(tapLabel("KEYS", head), "KEYS toggle");
+    CHECK(findLabel("LIVE \xC2\xB7 NOT RECORDED", false, lrow) != nullptr, "KEYS row shown");
+    CHECK(findLabel("DEL", false, kWork) == nullptr, "step row hidden in KEYS");
+    int zx1 = 0, zy1 = 0, zx2 = 0, zy2 = 0;
+    CHECK(halHostExclusive(&zx1, &zy1, &zx2, &zy2) && zx1 == 329 && zy1 == 176 && zx2 == 329 + 710 - 1 &&
+              zy2 == 176 + 214 - 1,
+          "KEYS: exclusive touch zone on the keyboard (%d,%d %d,%d)", zx1, zy1, zx2, zy2);
+    const uint32_t rev0 = a.revs().pattern;
+    const int lky = 176 + 190;
+    runAudio(1500);   // the auditions and the line's notes have died away
+    {
+        const uint32_t m0 = a.synthNotes();
+        const hal::TouchPoint c4 = {(int16_t)wx(0), (int16_t)lky, 0, 0}, e4 = {(int16_t)wx(2), (int16_t)lky, 1, 0},
+                              g4 = {(int16_t)wx(4), (int16_t)lky, 2, 0};
+        const hal::TouchPoint chord[3] = {c4, e4, g4};
+        halHostTouch(chord, 3);
+        runAudio(60);
+        CHECK(a.synthNotes() == m0 + 3, "three fingers: three notes (%u)", (unsigned)(a.synthNotes() - m0));
+        CHECK(a.engine().telemetry().synth_voices.load() == 3, "three voices sound (%d)",
+              (int)a.engine().telemetry().synth_voices.load());
+        halHostTouch(chord, 3);   // the same sample again: nothing new
+        runAudio(40);
+        CHECK(a.synthNotes() == m0 + 3, "held fingers start nothing new (%u)", (unsigned)(a.synthNotes() - m0));
+        shot("view-synth-keys");
+        const hal::TouchPoint d4 = {(int16_t)wx(1), (int16_t)lky, 0, 0};
+        const hal::TouchPoint moved[3] = {d4, e4, g4};
+        halHostTouch(moved, 3);   // finger 1 slides C4 -> D4
+        runAudio(40);
+        CHECK(a.synthNotes() == m0 + 4, "a finger slides onto D4: its note moves (%u)", (unsigned)(a.synthNotes() - m0));
+        halHostTouch(moved + 1, 2);   // D4 lifted
+        runAudio(40);
+        CHECK(a.synthNotes() == m0 + 4, "lifting a finger starts nothing");
+        halHostTouch(nullptr, 0);
+        runAudio(1500);
+        CHECK(a.engine().telemetry().synth_voices.load() == 0, "all fingers up: the notes end (%d voices)",
+              (int)a.engine().telemetry().synth_voices.load());
+        // a finger that came down outside the keyboard never plays it, even when it slides onto it
+        const hal::TouchPoint hint = {(int16_t)760, (int16_t)151, 3, 0};   // the KEYS row's hint
+        const hal::TouchPoint slid = {(int16_t)wx(6), (int16_t)lky, 3, 0};
+        halHostTouch(&hint, 1);
+        halHostTouch(&slid, 1);
+        runAudio(40);
+        halHostTouch(nullptr, 0);
+        runAudio(40);
+        CHECK(a.synthNotes() == m0 + 4, "a finger from outside does not play (%u)", (unsigned)(a.synthNotes() - m0));
+    }
+    // the PC pointer is one finger too
+    {
+        const uint32_t m0 = a.synthNotes();
+        lvhost_tap(wx(3), lky);
+        runAudio(60);
+        CHECK(a.synthNotes() == m0 + 1, "the pointer plays a key (%u)", (unsigned)(a.synthNotes() - m0));
+    }
+    bool same = a.revs().pattern == rev0;
+    for (int i = 0; i < kMaxSteps; ++i) same = same && memcmp(&line[i], &a.synthStep(i), sizeof line[i]) == 0;
+    CHECK(same, "KEYS writes nothing into the line");
+    CHECK(tapLabel("OCT +", lrow) && findLabel("C5 \xE2\x80\x93 C7", false, lrow) != nullptr, "KEYS: OCT +");
+    CHECK(tapLabel("OCT -", lrow) && findLabel("C4 \xE2\x80\x93 C6", false, lrow) != nullptr, "KEYS: OCT -");
+    CHECK(tapLabel("VEL", lrow, true) && findLabel("VEL 40", false, lrow) != nullptr, "KEYS: VEL 127 -> 40");
+    CHECK(tapLabel("VEL", lrow, true) && tapLabel("VEL", lrow, true) && findLabel("VEL 100", false, lrow) != nullptr,
+          "KEYS: VEL back to 100");
+    {   // ALL OFF while fingers hold keys: the notes end and the fingers play no more (no new notes, no offs)
+        const hal::TouchPoint two[2] = {{(int16_t)wx(0), (int16_t)lky, 0, 0}, {(int16_t)wx(2), (int16_t)lky, 1, 0}};
+        halHostTouch(two, 2);
+        runAudio(60);
+        CHECK(a.engine().telemetry().synth_voices.load() == 2, "two fingers: two voices");
+        CHECK(tapLabel("ALL OFF", lrow), "ALL OFF");
+        halHostTouch(two, 2);
+        runAudio(1500);
+        CHECK(a.engine().telemetry().synth_voices.load() == 0, "ALL OFF: silent though the fingers stay (%d)",
+              (int)a.engine().telemetry().synth_voices.load());
+        const uint32_t m1 = a.synthNotes();
+        halHostTouch(nullptr, 0);
+        runAudio(40);
+        CHECK(a.synthNotes() == m1, "lifting after ALL OFF starts nothing");
+    }
+    // the zone belongs to the keyboard only while it is on screen
+    nav(View::Sequence);
+    CHECK(!halHostExclusive(nullptr, nullptr, nullptr, nullptr), "another view: no exclusive zone");
+    nav(View::Synth);
+    runAudio(60);
+    CHECK(halHostExclusive(nullptr, nullptr, nullptr, nullptr), "SYNTH KEYS again: zone back");
+    // the whole screen keeps KEYS; a key there plays
+    const int kbx = 1039 - 26 + 13, kby = 87 + 4 + 13;
+    lvhost_tap(kbx, kby);
+    runAudio(150);
+    CHECK(panelMaxedFull(), "SYNTH on the whole screen");
+    {
+        const lv_point_t z1 = maxPoint(Panel::Work, 329, 176, geo::work_x, geo::work_y);
+        CHECK(halHostExclusive(&zx1, &zy1, &zx2, &zy2) && abs(zx1 - z1.x) <= 2 && abs(zy1 - z1.y) <= 2 && zx2 > 1100,
+              "full screen: the zone follows the larger keyboard (%d,%d %d,%d)", zx1, zy1, zx2, zy2);
+        const uint32_t m0 = a.synthNotes();
+        const lv_point_t kp = maxPoint(Panel::Work, wx(9), lky, geo::work_x, geo::work_y);   // E5
+        const hal::TouchPoint f = {(int16_t)kp.x, (int16_t)kp.y, 0, 0};
+        halHostTouch(&f, 1);
+        runAudio(60);
+        CHECK(a.synthNotes() == m0 + 1, "full-screen key plays (%u)", (unsigned)(a.synthNotes() - m0));
+        shot("max-synth-keys");
+        halHostTouch(nullptr, 0);
+        runAudio(60);
+        // KEYS off on the whole screen: the step editor is built there, larger; a chord key still edits
+        const lv_point_t mp = maxPoint(Panel::Work, 689 + 35, 87 + 17, geo::work_x, geo::work_y);   // KEYS
+        lvhost_tap(mp.x, mp.y);
+        runAudio(150);
+        CHECK(!halHostExclusive(nullptr, nullptr, nullptr, nullptr), "full screen, KEYS off: no zone");
+        const lv_point_t cp = maxPoint(Panel::Work, 329 + 9 * 710 / 16 + 22, 200, geo::work_x, geo::work_y);
+        lvhost_tap(cp.x, cp.y);   // step 10
+        runAudio(60);
+        const lv_point_t ck = maxPoint(Panel::Work, wx(4), ky, geo::work_x, geo::work_y);   // G4
+        lvhost_tap(ck.x, ck.y);
+        runAudio(60);
+        CHECK(stepHas(a.synthStep(9), 67), "full screen: a chord key edits step 10");
+        shot("max-synth-full");
+    }
+    const lv_point_t rp = maxPoint(Panel::Work, kbx, kby, geo::work_x, geo::work_y);
+    lvhost_tap(rp.x, rp.y);
+    runAudio(150);
+    CHECK(panelMaxed() == Panel::Count && !panelMaxedFull(), "SYNTH back from the whole screen");
+    CHECK(findLabel("DEL", false, kWork) != nullptr, "the step editor after the whole screen");
+}
+
 static void smokeBassKeys()
 {
     App& a = app();
@@ -1203,6 +1448,37 @@ static void smokeKeyboard()
     CHECK(view_bass::liveBase() == b0 + 12, "X: octave up");
     keyChar('z');
     CHECK(view_bass::liveBase() == b0, "Z: octave down");
+    // 0.4.9: in SYNTH the note keys play the synth, keys held together sound together; Z / X move its range
+    key(keyEv(hal::Key::Tab), 300);
+    CHECK(a.ui().view == View::Synth, "Tab: BASS -> SYNTH (%d)", (int)a.ui().view);
+    {
+        runAudio(1500);   // earlier notes have died away
+        const uint32_t s0 = a.synthNotes();
+        keyChar('a');
+        keyChar('d');
+        keyChar('g');   // C E G, no release between: a chord
+        runAudio(40);
+        CHECK(a.synthNotes() == s0 + 3, "SYNTH: A, D, G play three notes (%u)", (unsigned)(a.synthNotes() - s0));
+        CHECK(a.engine().telemetry().synth_voices.load() == 3, "SYNTH: the chord sounds (%d voices)",
+              (int)a.engine().telemetry().synth_voices.load());
+        key(keyEv(hal::Key::Release));
+        runAudio(1500);
+        CHECK(a.engine().telemetry().synth_voices.load() == 0, "SYNTH: Release ends the chord");
+        const int sb = view_synth::liveBase();
+        keyChar('x');
+        CHECK(view_synth::liveBase() == sb + 12 && view_bass::liveBase() == b0, "SYNTH: X moves the synth's range");
+        keyChar('z');
+        CHECK(view_synth::liveBase() == sb, "SYNTH: Z back");
+    }
+    // a maximized work area builds only the shown view: Z / X there must not touch the views that went (0.4.9)
+    nav(View::Sequence);
+    panelToggleMax(Panel::Work);
+    runAudio(120);
+    keyChar('x');
+    keyChar('z');
+    CHECK(view_bass::liveBase() == b0, "Z / X with the work area maximized");
+    panelToggleMax(Panel::Work);
+    runAudio(120);
     // Up / Down: scenes
     nav(View::Sequence);
     key(keyEv(hal::Key::Down), 200);
@@ -1669,10 +1945,10 @@ static void redrawReport()
     lv_display_add_event_cb(g_disp, redrawCb, LV_EVENT_INVALIDATE_AREA, nullptr);
     if (getenv("ORBIT_REDRAW_NOCULL")) pads::setCulling(false);   // the old way, for comparison
     if (getenv("ORBIT_PADSKIP")) pads::setDebugSkip((uint8_t)atoi(getenv("ORBIT_PADSKIP")));
-    const View views[] = {View::Sequence, View::Sample, View::Bass, View::Mixer, View::Browser, View::Fx};
-    const char* names[] = {"SEQUENCE", "SAMPLE", "BASS", "MIXER", "BROWSER", "FX"};
+    const View views[] = {View::Sequence, View::Sample, View::Bass, View::Synth, View::Mixer, View::Browser, View::Fx};
+    const char* names[] = {"SEQUENCE", "SAMPLE", "BASS", "SYNTH", "MIXER", "BROWSER", "FX"};
     const int scene = getenv("ORBIT_REDRAW_SCENE") ? atoi(getenv("ORBIT_REDRAW_SCENE")) : 0;
-    for (int v = 0; v < 6; ++v) {
+    for (int v = 0; v < 7; ++v) {
         nav(views[v]);
         lvhost_tap(sceneX(scene), kSceneY);
         runAudio(200);
@@ -1827,6 +2103,7 @@ int main()
     smokeKnob();
     smokeMaximize();
     smokeBassKeys();
+    smokeSynth();
     smokeConsole();
     smokeKeyboard();
     smokeTopBar();

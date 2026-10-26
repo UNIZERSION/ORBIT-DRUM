@@ -25,13 +25,14 @@ import serial
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 # ---- screen coordinates (design px, the 1280x720 layout; host/render_ui.cpp uses the same)
-TAB_SLOT = {"sample": 0, "sequence": 1, "bass": 2, "mixer": 3, "browser": 4, "fx": 5}
-VIEW_ID = {"sample": 0, "sequence": 1, "mixer": 2, "browser": 3, "fx": 4, "bass": 5}
+# 0.4.9: seven tabs as wide as their names (ui/scr_top.cpp kNavW: 72 92 64 64 64 86 64, 6 apart from x 377)
+TAB_CX = {"sample": 413, "sequence": 501, "bass": 585, "synth": 655, "mixer": 725, "browser": 806, "fx": 887}
+VIEW_ID = {"sample": 0, "sequence": 1, "mixer": 2, "browser": 3, "fx": 4, "bass": 5, "synth": 6}
 PAD_CX = [25 + 30, 93 + 30, 162 + 30, 230 + 30]
 PAD_CY = [118 + 31, 187 + 31, 255 + 31, 324 + 31]
 PLAY = (1153 + 16, 14 + 16)
 GEAR = (1020 + 15, 31)
-WORK_MAX = (377 + 6 * 92 + 2 + 13, 30)
+WORK_MAX = (931 + 13, 30)
 # BASS view
 KEYS_BTN = (589 + 35, 87 + 17)
 BASS_FULL = (1039 - 26 + 13, 87 + 4 + 13)
@@ -39,7 +40,7 @@ KNOB_Y = 432 + 23
 
 
 def tab(name):
-    return (377 + TAB_SLOT[name] * 92 + 42, 30)
+    return (TAB_CX[name], 30)
 
 
 def pad(i):
@@ -252,7 +253,7 @@ class Report:
 # ---------------------------------------------------------------- the tests
 def t_views(d, rep, out):
     print("views")
-    for name in ["sequence", "bass", "mixer", "browser", "fx", "sample"]:
+    for name in ["sequence", "bass", "synth", "mixer", "browser", "fx", "sample"]:
         d.tap(*tab(name))
         time.sleep(0.7)
         s = d.state()
@@ -725,8 +726,103 @@ def t_bulk(d, rep, out):
     time.sleep(0.5)
 
 
+# SYNTH view (0.4.9): a chord into an empty step, three fingers on KEYS (plus a knob while they hold), the whole
+# screen. The view starts in step editing after a boot (KEYS off).
+SYNTH_KEYS_BTN = (689 + 35, 87 + 17)
+SYNTH_FULL = (1039 - 26 + 13, 87 + 4 + 13)
+
+
+def synth_roll(col):     # the roll's column (16 over 329..1039), pitch area
+    return (329 + col * 710 // 16 + 22, 200)
+
+
+def synth_chord_key(i):  # the chord keyboard: 15 white keys over 329..1039 x 310..389, low half
+    return (329 + i * 710 // 15 + 710 // 30, 310 + 66)
+
+
+def synth_live_key(i):   # the KEYS keyboard: 15 white keys over 329..1039 x 176..389, low half
+    return (329 + i * 710 // 15 + 710 // 30, 176 + 190)
+
+
+def t_synth(d, rep, out):
+    print("SYNTH")
+    if d.state().get("playing") == 1:
+        d.tap(*PLAY)
+        time.sleep(0.4)
+    d.tap(*tab("synth"))
+    time.sleep(0.8)
+    rep.check("view synth", d.state().get("view") == VIEW_ID["synth"])
+    d.shot(os.path.join(out, "synth.png"))
+    # a chord C4 E4 G4 into step 7 (empty in the demo's scene A): each key plays its note while it is held
+    d.tap(*synth_roll(6))
+    time.sleep(0.2)
+    n0 = d.audio().get("synth_notes", 0)
+    for i in (0, 2, 4):
+        d.tap(*synth_chord_key(i))
+        time.sleep(0.15)
+    n1 = d.audio().get("synth_notes", 0)
+    rep.check("chord keys play their notes", n1 == n0 + 3, "%d -> %d" % (n0, n1))
+    d.shot(os.path.join(out, "synth_chord.png"))
+    # the line plays the chord
+    d.tap(*PLAY)
+    time.sleep(2.5)
+    n2 = d.audio().get("synth_notes", 0)
+    d.shot(os.path.join(out, "synth_play.png"))
+    d.tap(*PLAY)
+    time.sleep(0.4)
+    rep.check("the line plays", n2 >= n1 + 3, "%d -> %d" % (n1, n2))
+    d.tap(*synth_roll(6))   # DEL: the step empty again
+    d.tap(821 + 26, 270 + 17)
+    time.sleep(0.3)
+    # KEYS: three fingers, a knob turned while they hold
+    d.tap(*SYNTH_KEYS_BTN)
+    time.sleep(0.6)
+    time.sleep(1.5)   # earlier notes die away
+    m0 = d.audio().get("synth_notes", 0)
+    c4, e4, g4 = synth_live_key(0), synth_live_key(2), synth_live_key(4)
+    d.touch(c4, e4, g4)   # together: a patch without sustain (the demo's PLUCK) fades in ~0.5 s
+    time.sleep(0.05)
+    a = d.audio()
+    m1, voices = a.get("synth_notes", 0), a.get("synth_voices", 0)
+    d.shot(os.path.join(out, "synth_keys_chord.png"))
+    kx, ky = knob(1)   # FILTER page: CUTOFF
+    d.touch(c4, e4, g4, (kx, ky))
+    for i in range(1, 7):
+        d.touch(c4, e4, g4, (kx, ky - i * 6))
+        time.sleep(0.03)
+    d.touch(c4, e4, g4)
+    m2 = d.audio().get("synth_notes", 0)
+    d.shot(os.path.join(out, "synth_keys_knob.png"))
+    d.release()
+    time.sleep(1.5)
+    end = d.audio().get("synth_voices", 0)
+    rep.check("three fingers: three notes", m1 == m0 + 3, "%d -> %d" % (m0, m1))
+    rep.check("three voices sound", voices == 3, "voices=%d" % voices)
+    rep.check("a knob while keys are held starts no note", m2 == m1, "%d -> %d" % (m1, m2))
+    rep.check("released: silent", end == 0, "voices=%d" % end)
+    d.drag(kx, ky, kx, ky + 36, 300)   # CUTOFF back down
+    time.sleep(0.3)
+    # the whole screen with KEYS, a key there, back; KEYS off
+    d.tap(*SYNTH_FULL)
+    time.sleep(0.9)
+    rep.check("synth full screen", d.state().get("full") == 1)
+    q0 = d.audio().get("synth_notes", 0)
+    d.touch(work_full(*synth_live_key(9)))
+    time.sleep(0.2)
+    q1 = d.audio().get("synth_notes", 0)
+    d.release()
+    rep.check("full-screen key plays", q1 == q0 + 1, "%d -> %d" % (q0, q1))
+    d.shot(os.path.join(out, "synth_full_keys.png"))
+    d.tap(*work_full(*SYNTH_FULL))
+    time.sleep(0.9)
+    rep.check("back from full screen", d.state().get("full") == 0)
+    d.tap(*SYNTH_KEYS_BTN)
+    time.sleep(0.5)
+    d.shot(os.path.join(out, "synth_end.png"))
+
+
 TESTS = [("demo", t_demo), ("views", t_views), ("pads", t_pads), ("transport", t_transport), ("scenes", t_scenes),
-         ("bass_keys", t_bass_keys), ("bass_full", t_bass_full), ("maximize", t_maximize), ("settings", t_settings),
+         ("bass_keys", t_bass_keys), ("bass_full", t_bass_full), ("synth", t_synth), ("maximize", t_maximize), ("settings", t_settings),
          ("help", t_help), ("browser_max", t_browser_max), ("keyboard", t_keyboard), ("bulk", t_bulk)]
 
 

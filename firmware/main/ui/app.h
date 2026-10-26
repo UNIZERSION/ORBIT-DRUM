@@ -19,7 +19,7 @@
 
 namespace orbit::ui {
 
-enum class View : uint8_t { Sample = 0, Sequence, Mixer, Browser, Fx, Bass, Count };   // Bass: 0.3
+enum class View : uint8_t { Sample = 0, Sequence, Mixer, Browser, Fx, Bass, Synth, Count };   // Bass: 0.3, Synth: 0.4.9
 enum class EditorTab : uint8_t { Trim = 0, Slice, Envelope, Filter, Pitch, Lfo, Count };
 // What the SEQUENCE grid edits: trigs, or a value lane of the selected track.
 enum class StepLane : uint8_t { Trig = 0, Velocity, Probability, Ratchet, Nudge, Pitch, Cond, Count };
