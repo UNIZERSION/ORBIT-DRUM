@@ -459,7 +459,7 @@ static void shotsOtherViews()
     // ACID BASS (0.3): a random line, then a step drawn on the line and a key of the keyboard
     nav(View::Bass);
     app().bassRandom();
-    runAudio(100);
+    runAudio(3300);   // the RANDOM toast has gone (README image)
     shot("view-bass");
     CHECK(app().bassStep(0).gate == 1, "RANDOM puts a note on step 1");
     // SYNTH (0.4.9): chords C Am F G, a long G, a note below and one above the two octaves (marks at the edges)
@@ -478,7 +478,7 @@ static void shotsOtherViews()
         a.setSynthStep(2, lo);
         a.setSynthStep(14, hi);
     }
-    runAudio(100);
+    runAudio(3300);   // no toast (README image)
     shot("view-synth");
 }
 

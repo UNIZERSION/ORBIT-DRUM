@@ -34,7 +34,7 @@ Tab5 Keyboard (the M5Stack keyboard for the Tab5; plug it in any time)
 - A W S E D F T G Y H U J K O L P ; ' play notes: the pads, or the bass / the synth in their views (keys held
   together play a chord in SYNTH) · Z / X octave · C / V velocity · M notes on / off
 
-GitHub: (link coming soon)
+GitHub: https://github.com/UNIZERSION/ORBIT-DRUM
 
 ## Opis po polsku (dla autora)
 
@@ -64,4 +64,4 @@ Klawiatura Tab5 (klawiatura M5Stack do Tab5; można podłączyć w każdej chwil
 - A W S E D F T G Y H U J K O L P ; ' grają nuty: pady albo bas / syntezator w ich widokach (w SYNTH klawisze
   trzymane razem grają akord) · Z / X oktawa · C / V głośność · M nuty wł. / wył.
 
-GitHub: (odnośnik wkrótce)
+GitHub: https://github.com/UNIZERSION/ORBIT-DRUM
