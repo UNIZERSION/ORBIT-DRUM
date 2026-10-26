@@ -1,5 +1,8 @@
-"""ORBIT DAW wordmark for the top bar (0.4.8): our own lettering in a wide, thin, angular techno style (chamfered
-corners, blade-cut ends). Pure Python, no packages.
+"""ORBIT DAW wordmark for the top bar: our own lettering, pure Python, no packages.
+
+0.4.9: a heavy blade style (the look of the user's UNICAT logo): thick angular letters, blades that reach past the
+cap and the baseline, a long blade wing before the first letter and after the last one, thin slanted cuts through
+some strokes. (0.4.8 had a wide, thin techno style.)
 
     python -I tools/logogen/logogen.py [--preview DIR]
 
@@ -14,14 +17,12 @@ import zlib
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 OUT_H = os.path.join(ROOT, "firmware", "main", "ui", "logo_orbit_daw.h")
 
-CAP_PX = 18      # cap height on the screen
+CAP_PX = 22      # height of the letters' bodies on the screen (0.4.8: 18); blades reach beyond
 SS = 6           # supersampling per axis (36 samples a pixel)
-H = 10.0         # design units: cap height
-T = 1.7          # stroke (diagonals)
-TH, TV = 2.0, 1.25  # horizontal / vertical strokes: thick bars, thin stems (as in the reference style)
-GAP = 2.6        # between letters
-SPACE = 6.0      # word space
-CB, CS = 3.0, 1.2  # big / small chamfer
+H = 10.0         # design units: body height (y down: 0 = top of the bodies, H = baseline)
+TV, TH, T = 2.8, 2.2, 2.5   # vertical stems, horizontal bars, diagonals
+GAP = 1.4        # between letters
+SPACE = 4.6      # word space
 
 
 def inset(poly, d):
@@ -53,95 +54,104 @@ def stroke_of(dx, dy):
     return T
 
 
-def inset_auto(poly, keep=()):
-    """inset() with the stroke of each edge's direction; edges listed in keep stay where they are."""
+def inset_auto(poly):
+    """inset() with the stroke of each edge's direction."""
     n = len(poly)
-    ds = []
-    for i in range(n):
-        (x0, y0), (x1, y1) = poly[i], poly[(i + 1) % n]
-        ds.append(0.0 if i in keep else stroke_of(x1 - x0, y1 - y0))
-    return inset(poly, ds)
+    return inset(poly, [stroke_of(poly[(i + 1) % n][0] - poly[i][0], poly[(i + 1) % n][1] - poly[i][1])
+                        for i in range(n)])
 
 
-def rect(x0, y0, x1, y1):
-    return [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+def cut(x, y0, y1, lean=0.5, w=0.42):
+    """A thin slanted cut through a stroke: from (x, y0) down to (x - lean, y1), w wide."""
+    return [(x, y0), (x + w, y0), (x + w - lean, y1), (x - lean, y1)]
 
 
-# A glyph: (advance, [group, ...]); a group is a list of contours filled even-odd; groups are united.
+# A glyph: (advance, groups, cuts). A group is a list of contours filled even-odd; groups are united; cuts (convex
+# polygons) are taken out of the whole glyph afterwards.
 def glyph_O():
-    w = 15.0
-    outer = [(CB, 0), (w - CS, 0), (w, CS), (w, H - CB), (w - CB, H), (CS, H), (0, H - CS), (0, CB)]
-    return w, [[outer, inset_auto(outer)]]
+    w = 11.0
+    outer = [(2.4, 0), (w, 0), (w, H - 2.4), (w - 2.4, H), (0, H), (0, 2.4)]
+    return w, [[outer, inset_auto(outer)]], [cut(7.4, -0.5, 2.7)]
 
 
 def glyph_R():
-    w = 15.0
-    mid = 6.0
-    bowl = [(0, 0), (w - CB, 0), (w, CB), (w, mid - CS), (w - CS, mid), (0, mid)]
-    leg = [(8.6, mid - 0.01), (11.0, mid - 0.01), (w, H), (w - 2.6, H)]
-    stem = [(0, 0), (TV, 0), (TV, H), (0, H - 1.4)]   # blade-cut foot
-    return w, [[bowl, inset_auto(bowl)], [leg], [stem]]
+    w = 11.0
+    bowl = [(0, 0), (w - 2.0, 0), (w, 2.0), (w, 4.6), (w - 1.8, 6.4), (0, 6.4)]
+    stem = [(0, 0), (TV, 0), (TV, H), (TV / 2, H + 2.0), (0, H)]   # a blade under the stem
+    leg = [(5.0, 6.3), (8.3, 6.3), (12.4, 11.6), (8.6, H)]          # the leg runs out below the baseline
+    return 12.0, [[bowl, inset_auto(bowl)], [stem], [leg]], [cut(5.6, 3.9, 6.9)]
 
 
 def glyph_B():
-    w = 15.0
-    top = [(0, 0), (w - 1.4 - CB, 0), (w - 1.4, CB), (w - 1.4, 4.0 + TH), (0, 4.0 + TH)]
-    low = [(0, 4.0), (w - CS, 4.0), (w, 4.0 + CS), (w, H - CB), (w - CB, H), (0, H)]
-    return w, [[top, inset_auto(top)], [low, inset_auto(low)]]
+    w = 11.0
+    outer = [(0, 0), (8.4, 0), (10.0, 1.6), (10.0, 3.4), (8.8, 4.6), (w, 6.2), (w, 8.2), (9.2, H), (0, H)]
+    top = [(TV, TH), (7.2, TH), (7.2, 3.7), (TV, 3.7)]
+    low = [(TV, 5.6), (8.2, 5.6), (8.2, 7.8), (TV, 7.8)]
+    barb = [(9.4, 4.2), (12.0, 3.6), (10.4, 5.4)]                     # a barb out of the waist
+    return w, [[outer, top, low], [barb]], []
 
 
 def glyph_I():
-    w = 1.6
-    return w, [[[(0, 1.6), (w, 0), (w, H), (0, H - 0.0)]]]   # blade-cut top
+    w = TV
+    return w, [[[(0, 0.9), (w, -2.7), (w, H), (w / 2, H + 1.8), (0, H)]]], []   # blade top, pointed foot
 
 
 def glyph_T():
-    w = 15.0
-    bar = [(0, 0), (w, 0), (w - 2.6, TH), (2.6, TH)]      # long blade ends
+    w = 12.4
+    bar = [(0.4, 0), (w - 0.8, 0), (w + 1.6, -1.5), (w - 1.2, TH), (1.4, TH)]   # a blade out of the right end
     c = w / 2
-    stem = [(c - TV / 2, TH - 0.01), (c + TV / 2, TH - 0.01), (c + TV / 2, H), (c - TV / 2, H - 1.2)]
-    return w, [[bar], [stem]]
+    stem = [(c - TV / 2, 3.0), (c + TV / 2, 2.5), (c + TV / 2, H), (c, H + 2.0), (c - TV / 2, H)]   # cut off the bar
+    return w, [[bar], [stem]], []
 
 
 def glyph_D():
-    w = 15.0
-    outer = [(0, 0), (w - CB, 0), (w, CB), (w, H - CB), (w - CB, H), (0, H)]
-    return w, [[outer, inset_auto(outer)]]
+    w = 11.0
+    outer = [(0, 0), (w - 2.8, 0), (w, 2.8), (w, H - 2.8), (w - 2.8, H), (0, H)]
+    horn = [(0, 0), (TV, 0), (-0.9, -2.3)]                           # a horn out of the top left
+    return w, [[outer, inset_auto(outer)], [horn]], [cut(6.4, 7.5, 10.5)]
 
 
 def glyph_A():
-    w = 15.0
-    bar0, bar1 = 5.4, 5.4 + TH
-    outer = [(0, H), (0, CB), (CB, 0), (w - CS, 0), (w, CS), (w, H)]
-    top = [(0, bar0), (0, CB), (CB, 0), (w - CS, 0), (w, CS), (w, bar0)]
-    counter = inset_auto(top, keep=(5,))   # the crossbar edge stays: the bar is below it
-    opening = rect(TV, bar1, w - TV, H)
-    return w, [[outer, counter, opening]]
+    w = 12.0
+    # legs 3 units wide (measured across x), slope 0.46; the counter is the inner lines' triangle over the bar
+    outer = [(0, H), (4.6, 0), (7.4, 0), (w, H), (9.0, H), (7.62, 7.0), (4.38, 7.0), (3.0, H)]
+    counter = [(6.0, 3.48), (6.88, 5.4), (5.12, 5.4)]
+    apex = [(4.6, 0.01), (7.4, 0.01), (6.6, -2.6)]
+    feet = [[(0, H), (3.0, H), (-1.3, H + 2.0)]], [[(9.0, H), (w, H), (w + 1.3, H + 2.0)]]
+    return w, [[outer, counter], [apex], feet[0], feet[1]], [cut(6.2, 4.8, 7.6)]
 
 
 def glyph_W():
-    w = 16.0
-    c = w / 2
-    sil = [(0, 0), (TV, 1.4), (TV, H - TH), (c - TV / 2, H - TH), (c - TV / 2, 4.2), (c + TV / 2, 3.0),
-           (c + TV / 2, H - TH), (w - TV, H - TH), (w - TV, 1.4), (w, 0), (w, H - CS), (w - CS, H), (CB, H),
-           (0, H - CB)]
-    return w, [[sil]]
+    w = 15.0
+    sil = [(0, 0), (2.9, 0), (4.4, 6.4), (6.1, 1.2), (8.9, 1.2), (10.6, 6.4), (12.1, 0), (w, 0), (11.9, H),
+           (9.3, H), (7.5, 4.4), (5.7, H), (3.1, H)]
+    return w, [[sil]], []
 
 
 GLYPHS = {"O": glyph_O, "R": glyph_R, "B": glyph_B, "I": glyph_I, "T": glyph_T, "D": glyph_D, "A": glyph_A,
           "W": glyph_W}
 
+# The wings: long blades out of the first letter's left side and the last letter's right side (letter units).
+WING_L = [[[(0.01, 2.6), (-7.0, -2.8), (0.01, 5.0)]], [[(0.01, 6.6), (-4.2, 11.8), (0.01, 8.8)]]]
+WING_R = [[[(12.0, 0.01), (20.4, -2.8), (14.3, 2.4)]], [[(13.0, 6.0), (16.8, 8.0), (12.4, 8.0)]]]
+
 
 def layout(text):
     shapes, x = [], 0.0
-    for i, ch in enumerate(text):
+    letters = [ch for ch in text if ch != " "]
+    for ch in text:
         if ch == " ":
             x += SPACE - GAP
             continue
-        w, groups = GLYPHS[ch]()
-        shapes.append([[[(px + x, py) for px, py in cont] for cont in g] for g in groups])
+        w, groups, cuts = GLYPHS[ch]()
+        if not shapes:
+            groups = groups + WING_L
+        if len(shapes) == len(letters) - 1:
+            groups = groups + WING_R
+        shift = lambda cont: [(px + x, py) for px, py in cont]   # noqa: E731
+        shapes.append(([[shift(c) for c in g] for g in groups], [shift(c) for c in cuts]))
         x += w + GAP
-    return shapes, x - GAP
+    return shapes
 
 
 def inside(cont, px, py):
@@ -157,37 +167,51 @@ def inside(cont, px, py):
     return c
 
 
+def bbox(conts):
+    xs = [p[0] for c in conts for p in c]
+    ys = [p[1] for c in conts for p in c]
+    return min(xs), min(ys), max(xs), max(ys)
+
+
 def render(text):
-    shapes, width_u = layout(text)
+    shapes = layout(text)
     s = CAP_PX / H
     pad = 1
-    wpx = int(width_u * s + 0.999) + 2 * pad
-    hpx = CAP_PX + 2 * pad
-    groups = [g for glyph in shapes for g in glyph]
-    # bounding boxes speed up the per-sample tests
-    boxes = []
-    for g in groups:
-        xs = [p[0] for c in g for p in c]
-        ys = [p[1] for c in g for p in c]
-        boxes.append((min(xs), min(ys), max(xs), max(ys)))
+    x0, y0, x1, y1 = bbox([c for groups, _ in shapes for g in groups for c in g])
+    wpx = int((x1 - x0) * s + 0.999) + 2 * pad
+    hpx = int((y1 - y0) * s + 0.999) + 2 * pad
+    # per glyph: its groups and cuts with bounding boxes (they speed up the per-sample tests)
+    items = []
+    for groups, cuts in shapes:
+        items.append(([(g, bbox(g)) for g in groups], [(c, bbox([c])) for c in cuts]))
     px = bytearray(wpx * hpx)
     for y in range(hpx):
         for x in range(wpx):
             hits = 0
             for sy in range(SS):
                 for sx in range(SS):
-                    ux = ((x - pad) + (sx + 0.5) / SS) / s
-                    uy = ((y - pad) + (sy + 0.5) / SS) / s
-                    for g, (bx0, by0, bx1, by1) in zip(groups, boxes):
-                        if ux < bx0 or ux > bx1 or uy < by0 or uy > by1:
-                            continue
-                        odd = False
-                        for cont in g:
-                            if inside(cont, ux, uy):
-                                odd = not odd
-                        if odd:
-                            hits += 1
+                    ux = x0 + ((x - pad) + (sx + 0.5) / SS) / s
+                    uy = y0 + ((y - pad) + (sy + 0.5) / SS) / s
+                    ink = False
+                    for groups, cuts in items:
+                        for g, (bx0, by0, bx1, by1) in groups:
+                            if ux < bx0 or ux > bx1 or uy < by0 or uy > by1:
+                                continue
+                            odd = False
+                            for cont in g:
+                                if inside(cont, ux, uy):
+                                    odd = not odd
+                            if odd:
+                                ink = True
+                                break
+                        if ink:
+                            for c, (bx0, by0, bx1, by1) in cuts:
+                                if bx0 <= ux <= bx1 and by0 <= uy <= by1 and inside(c, ux, uy):
+                                    ink = False
+                                    break
+                        if ink:
                             break
+                    hits += 1 if ink else 0
             px[y * wpx + x] = (hits * 255 + SS * SS // 2) // (SS * SS)
     return wpx, hpx, px
 
@@ -199,7 +223,7 @@ def write_header(w, h, data):
     body = "\n".join(lines)
     src = f"""#pragma once
 // ORBIT DAW wordmark (top bar), generated by tools/logogen/logogen.py: do not edit by hand.
-// Our own lettering in a wide, thin, angular techno style. A8 (alpha only): the image is recoloured with the ink.
+// Our own lettering in a heavy blade style. A8 (alpha only): the image is recoloured with the ink.
 #include "lvgl.h"
 
 namespace orbit::ui {{
@@ -249,13 +273,16 @@ def preview(path, w, h, a, zoom=4):
 
 def main():
     w, h, a = render("ORBIT DAW")
-    write_header(w, h, a)
-    print(f"logo {w} x {h} px -> {os.path.relpath(OUT_H, ROOT)}")
     if "--preview" in sys.argv:
         d = sys.argv[sys.argv.index("--preview") + 1]
         p = os.path.join(d, "logo_orbit_daw_preview.png")
         preview(p, w, h, a)
         print("preview", p)
+    if "--no-header" not in sys.argv:
+        write_header(w, h, a)
+        print(f"logo {w} x {h} px -> {os.path.relpath(OUT_H, ROOT)}")
+    else:
+        print(f"logo {w} x {h} px (header not written)")
 
 
 if __name__ == "__main__":

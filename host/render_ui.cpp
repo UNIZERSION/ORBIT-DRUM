@@ -745,8 +745,9 @@ static void shotsBluetooth()
     if (sub) {
         lv_area_t w;
         lv_obj_get_coords(sub, &w);
-        CHECK(w.x1 == 20 && w.x2 < 296 - 8 && lv_area_get_height(&w) == 20, "wordmark at %d..%d x %d..%d", (int)w.x1,
-              (int)w.x2, (int)w.y1, (int)w.y2);
+        // 0.4.9: the blade style, larger (35 px with the blades), centred in the 62 px bar
+        CHECK(w.x1 == 20 && w.x2 < 296 - 8 && lv_area_get_height(&w) == 35 && w.y1 >= 10 && w.y2 <= 52,
+              "wordmark at %d..%d x %d..%d", (int)w.x1, (int)w.x2, (int)w.y1, (int)w.y2);
     }
     if (chip && sub) {
         lv_obj_t* btn = lv_obj_get_parent(chip);
