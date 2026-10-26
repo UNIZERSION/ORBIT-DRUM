@@ -493,6 +493,7 @@ void prioritizeScanout()
 uint32_t probeLaneRate()
 {
     s_probed = true;
+    detail::I2cCeiling ceiling;   // the panel task (5); the sleep below holds no bus
     int64_t on_at = detail::touchPowerOnUs();
     if (!on_at) {
         if (bsp_feature_enable(BSP_FEATURE_TOUCH, true) != ESP_OK) return 1000;
@@ -542,6 +543,7 @@ bool lcdPower()
     esp_err_t err = ESP_FAIL;
     for (int attempt = 0; attempt < 3; ++attempt) {
         if (detail::i2cReady()) {
+            detail::I2cCeiling ceiling;
             // the cached 0x43 handle of boardInit; a failed boardInit attempt is retried once here
             err = detail::ioe1Open() ? bsp_feature_enable(BSP_FEATURE_LCD, true) : ESP_FAIL;
             if (err == ESP_OK) return true;

@@ -72,6 +72,25 @@ int batteryMv()
 // ---------------------------------------------------------------- detail: I2C + expander 0x44
 namespace detail {
 
+#if !configUSE_TRACE_FACILITY
+#error "I2cCeiling reads the base priority with vTaskGetInfo: CONFIG_FREERTOS_USE_TRACE_FACILITY=y"
+#endif
+
+I2cCeiling::I2cCeiling()
+{
+    if (uxTaskPriorityGet(nullptr) >= kI2cPrio) return;   // touch (200 Hz) and audio: no vTaskGetInfo
+    TaskStatus_t st;
+    vTaskGetInfo(nullptr, &st, pdFALSE, eRunning);
+    base_ = st.uxBasePriority;   // vTaskPrioritySet back to it keeps a priority inherited meanwhile
+    vTaskPrioritySet(nullptr, kI2cPrio);
+    raised_ = true;
+}
+
+I2cCeiling::~I2cCeiling()
+{
+    if (raised_) vTaskPrioritySet(nullptr, base_);
+}
+
 bool i2cReady()
 {
     if (s_i2c_ok) return true;
@@ -101,6 +120,7 @@ esp_err_t i2cAdd(uint16_t addr, i2c_master_dev_handle_t* dev)
 esp_err_t i2cRead(i2c_master_dev_handle_t dev, uint8_t reg, uint8_t* data, size_t len)
 {
     if (!dev) return ESP_ERR_INVALID_STATE;
+    I2cCeiling ceiling;
     return i2c_master_transmit_receive(dev, &reg, 1, data, len, 50);
 }
 
@@ -108,6 +128,7 @@ esp_err_t i2cWrite(i2c_master_dev_handle_t dev, uint8_t reg, uint8_t value)
 {
     if (!dev) return ESP_ERR_INVALID_STATE;
     const uint8_t w[2] = {reg, value};
+    I2cCeiling ceiling;
     return i2c_master_transmit(dev, w, 2, 50);
 }
 
@@ -141,6 +162,7 @@ esp_io_expander_handle_t ioe1Open()
     esp_io_expander_handle_t io = ioe1();
     if (io) return io;
     if (!i2cReady()) return nullptr;
+    I2cCeiling ceiling;   // app_main (priority 1) while the panel task (5) starts the display
     for (int attempt = 0; attempt < 3 && !io; ++attempt) {
         if (attempt) {
             i2c_master_bus_reset(bsp_i2c_get_handle());   // the bus can hang at power-up
@@ -184,6 +206,7 @@ bool boardInit()
     // IO expander 0x43 (LCD/touch enable, SPK_EN, HP_DET): the BSP driver resets it once, here,
     // before the display and the audio use it (up to 3 attempts; lcdPower retries once more).
     if (detail::ioe1Open()) {
+        detail::I2cCeiling ceiling;
         // Panel and touch power in the BSP's order (LCD_RST released, then TP_RST), as bsp_display_new
         // does it: the touch controller's 500 ms settle time then passes during the SD mount and App::init
         // instead of in displayStart (probeLaneRate waits only for what is left of it).
@@ -203,7 +226,12 @@ bool boardInit()
     // INA226 battery monitor: 16 samples, 1.1 ms conversions, continuous
     if (detail::i2cAdd(0x41, &s_ina) == ESP_OK) {
         const uint8_t cfg[3] = {0x00, 0x05, 0x27};
-        if (i2c_master_transmit(s_ina, cfg, 3, 50) != ESP_OK) {
+        esp_err_t ina_err;
+        {
+            detail::I2cCeiling ceiling;
+            ina_err = i2c_master_transmit(s_ina, cfg, 3, 50);
+        }
+        if (ina_err != ESP_OK) {
             i2c_master_bus_rm_device(s_ina);
             s_ina = nullptr;
             ESP_LOGW(TAG, "INA226 (0x41) not answering: battery unknown");

@@ -6,6 +6,7 @@
 #include "hal/i2s_types.h"      // i2s_clock_src_t (ESP-IDF hal component)
 #include "esp_err.h"
 #include "esp_io_expander.h"
+#include "freertos/FreeRTOS.h"
 
 namespace hal {
 struct Diagnostics;
@@ -14,6 +15,25 @@ struct Diagnostics;
 namespace hal::detail {
 
 // ---- I2C (BSP bus I2C_NUM_1, SDA 31 / SCL 32, shared by touch, codecs, expanders, INA226, RTC)
+// Every transfer on this bus runs inside an I2cCeiling (0.4.10): the task runs at kI2cPrio, the touch task's
+// priority, until the transfer is over. The IDF bus lock is a binary semaphore (no priority inheritance). A task
+// below LVGL (4) and the panel / present / USB tasks (5) that one of them preempted while it held the bus kept
+// it for a whole redraw (100+ ms when Settings opens or switches tabs): the touch task's 20 ms reads, HP_DET
+// (50 ms) and the bus probes then failed with ESP_ERR_TIMEOUT although the bus was fine (device log 2026-10-26:
+// 3 failures per 30 s of Settings tabs, 0 when idle; seen since 0.4.x, standalone and under every launcher).
+// A task already at kI2cPrio or above (touch, audio) is left alone.
+constexpr UBaseType_t kI2cPrio = 6;                  // orbit_touch (touch.cpp)
+class I2cCeiling {
+public:
+    I2cCeiling();
+    ~I2cCeiling();
+    I2cCeiling(const I2cCeiling&) = delete;
+    I2cCeiling& operator=(const I2cCeiling&) = delete;
+
+private:
+    UBaseType_t base_ = 0;   // the base priority to go back to (not an inherited one)
+    bool raised_ = false;
+};
 bool i2cReady();                                     // bsp_i2c_init with retries + bus recovery
 esp_err_t i2cAdd(uint16_t addr, i2c_master_dev_handle_t* dev);
 esp_err_t i2cRead(i2c_master_dev_handle_t dev, uint8_t reg, uint8_t* data, size_t len);
