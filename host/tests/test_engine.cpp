@@ -23,6 +23,7 @@
 #include "core/dsp/reverb.h"
 #include "core/engine.h"
 #include "core/fx.h"
+#include "core/fxcheck.h"
 #include "core/params.h"
 #include "core/project.h"
 #include "core/sample.h"
@@ -1215,6 +1216,203 @@ static void testCrush()
 }
 
 // ACID BASS (0.3): the scene's bass line plays on the step grid into bus GP_BASS_BUS; slide, mute, live notes.
+// SYNTH (0.4.9): the scene's synth line plays into bus GP_SYN_BUS (default 7), a stop releases the line, live notes
+// sound until SynthOff, GP_SYN_MUTE silences the line, a repeated note is not cut short by the older note's off.
+// 0.4.9: SYNTH knobs keep working although the engine re-reads them only on a change, and the render on the helper
+// core (dual, the default) gives the same output as the inline one (on the PC the helper runs the job at once, so
+// this checks the engine's dual path: begin / job / wait / mix).
+// 0.4.9: the block-wise stereo delay gives the same bits as its per-sample reference code (core/fxcheck.cpp: noise
+// bursts, delay-time crossfades, feedback / tone / ping-pong moves, block lengths 1..128, delays shorter than a block
+// that take the fallback path).
+static void testFxBlockExact()
+{
+    for (int rate : {48000, 44100}) {
+        const FxCheck c = fxSelfCheck(rate, 3000);
+        CHECK(c.ran, "fxcheck %d Hz: memory", rate);
+        CHECK(c.delay_diff == 0, "fxcheck %d Hz: delay block == reference (%lld of %lld samples differ)", rate,
+              (long long)c.delay_diff, (long long)c.samples);
+        CHECK(c.delay_block > c.blocks / 2 && c.delay_block < c.blocks, "fxcheck %d Hz: delay block path %lld of %lld",
+              rate, (long long)c.delay_block, (long long)c.blocks);
+        CHECK(c.delay_rms > 1e-3, "fxcheck %d Hz: signal (delay rms %.4f)", rate, c.delay_rms);
+    }
+}
+
+// 0.4.9: FxBus::reserveLines (the Tab5 puts the reverb's lines into internal RAM at boot): one FxBus at a time uses
+// the block (a second one takes PSRAM), a rate change re-uses it, and the output is the same as with lines allocated
+// per init. Runs last: the reservation is global.
+static void testFxReservedLines()
+{
+    FxBus* plain = new FxBus();
+    CHECK(plain->init(48000) && !plain->linesInternal(), "no reservation: lines allocated per init");
+    CHECK(FxBus::reserveLines(48000) && FxBus::linesReserved(), "reserveLines(48000)");
+    FxBus* resv = new FxBus();
+    FxBus* other = new FxBus();
+    CHECK(resv->init(48000) && resv->linesInternal(), "the first FxBus takes the reserved block");
+    CHECK(other->init(48000) && !other->linesInternal(), "a second FxBus at the same time takes PSRAM");
+    delete other;
+    bool same = true;
+    FxParams p;
+    std::vector<float> sl(128), sr(128), sp(128), al(128), ar(128), bl(128), br(128);
+    uint32_t rng = 1;
+    for (int rate : {48000, 44100, 48000}) {
+        CHECK(plain->init(rate) && resv->init(rate) && resv->linesInternal(), "rate %d: re-init keeps the block", rate);
+        p.delay_samples = 0.25f * (float)rate;
+        for (int b = 0; b < 600; ++b) {
+            for (int i = 0; i < 128; ++i) {
+                rng = rng * 1664525u + 1013904223u;
+                const float x = (b % 40) < 4 ? ((float)(rng >> 9) / 4194304.0f - 1.0f) * 0.5f : 0.0f;
+                sl[i] = x;
+                sr[i] = -x;
+                sp[i] = 0.3f * x;
+            }
+            plain->process(sl.data(), sr.data(), sp.data(), 128, p, al.data(), ar.data());
+            resv->process(sl.data(), sr.data(), sp.data(), 128, p, bl.data(), br.data());
+            for (int i = 0; i < 128 && same; ++i) same = al[i] == bl[i] && ar[i] == br[i];
+        }
+    }
+    CHECK(same, "reverb output with reserved lines == lines allocated per init (48 / 44.1 / 48 kHz)");
+    delete resv;
+    FxBus* again = new FxBus();
+    CHECK(again->init(48000) && again->linesInternal(), "a released block can be taken again");
+    delete again;
+    delete plain;
+}
+
+static void testSynthKnobsCores()
+{
+    Rig& a = *newRig(48000, true);
+    Rig& b = *newRig(48000, true);
+    b.eng.setDualCore(false);
+    CHECK(a.eng.dualCore() && !b.eng.dualCore(), "setDualCore / dualCore");
+    for (Rig* r : {&a, &b}) {
+        r->prj.g[GP_SYN_SEND] = 0.0f;
+        r->cmd(CmdType::SynthNote, 0, 100, 57);
+        r->cmd(CmdType::SynthNote, 0, 100, 64);
+        r->render(r->ms(300));
+    }
+    CHECK(a.eng.telemetry().dual.load() == 1 && b.eng.telemetry().dual.load() == 0, "Telemetry::dual %d / %d",
+          (int)a.eng.telemetry().dual.load(), (int)b.eng.telemetry().dual.load());
+    const double before = rms(a.L, a.pos() - a.ms(150), a.pos());
+    for (Rig* r : {&a, &b}) {
+        r->prj.g[GP_SYN_CUTOFF] = 150.0f;   // Hz (default 1280): darker and quieter
+        r->render(r->ms(300));
+    }
+    const double dark = rms(a.L, a.pos() - a.ms(150), a.pos());
+    CHECK(before > 0.01 && dark < 0.5 * before, "SYNTH cutoff change heard while a note holds (%.4f -> %.4f)", before, dark);
+    for (Rig* r : {&a, &b}) {
+        r->prj.g[GP_SYN_CUTOFF] = 20480.0f;
+        r->prj.g[GP_SYN_OSC1_WAVE] = 1.0f;   // SQUARE
+        r->render(r->ms(200));
+    }
+    const double open = rms(a.L, a.pos() - a.ms(100), a.pos());
+    CHECK(open > 1.5 * dark, "SYNTH cutoff back open + wave change heard (%.4f)", open);
+    for (Rig* r : {&a, &b}) {
+        r->prj.g[GP_SYN_LEVEL] = -60.0f;   // dB
+        r->render(r->ms(300));
+    }
+    CHECK(rms(a.L, a.pos() - a.ms(100), a.pos()) < 0.02 * open, "SYNTH level change heard");
+    bool same = a.L.size() == b.L.size();
+    for (size_t i = 0; same && i < a.L.size(); ++i) same = a.L[i] == b.L[i] && a.R[i] == b.R[i];
+    CHECK(same, "dual and inline SYNTH render give the same samples");
+    CHECK(a.eng.telemetry().helper_stalls.load() == 0, "no helper stalls");
+}
+
+static void testSynth()
+{
+    Rig& r = *newRig(48000, true);
+    r.prj.g[GP_SYN_SEND] = 0.0f;          // dry: the silence checks must not hear reverb / delay tails
+    r.prj.g[GP_SYN_A_RELEASE] = 30.0f;    // ms
+    r.prj.g[GP_SYN_A_SUSTAIN] = 0.8f;
+    Scene& sc = r.prj.scene_data[0];
+    auto put = [&](int step, int slot, int note, int vel, int len) {
+        SynthNote& n = sc.synth.step[step].n[slot];
+        n.note = (uint8_t)note;
+        n.vel = (uint8_t)vel;
+        n.len = (uint8_t)len;
+    };
+    put(0, 0, 60, 110, 2);   // a chord on step 0, two steps long
+    put(0, 1, 64, 100, 2);
+    put(8, 0, 67, 100, 1);
+    const uint32_t n0 = r.eng.telemetry().synth_notes.load();
+    r.cmd(CmdType::Play);
+    r.render(r.ms(100));
+    CHECK(r.eng.telemetry().synth_voices.load() == 2, "chord: 2 synth voices (%d)", (int)r.eng.telemetry().synth_voices.load());
+    CHECK(r.eng.telemetry().bus_peak[6].load() > 0.01f, "synth reaches bus 7 (%.4f)", (double)r.eng.telemetry().bus_peak[6].load());
+    r.render(r.ms(960));   // 120 BPM 1/16: step 8 starts at 1.000 s
+    const uint32_t notes = r.eng.telemetry().synth_notes.load() - n0;
+    CHECK(notes == 3, "synth line notes in 1 s: %u (expect 3)", (unsigned)notes);
+    CHECK(allFinite(r.L) && allFinite(r.R), "synth output finite");
+    const double pk = peakAbs(r.L, 0, r.L.size());
+    CHECK(pk > 0.02 && pk < 1.5, "synth peak %.3f", pk);
+    // between the notes (step 2..7: the chord ended after 2 steps minus 1/16 and its 30 ms release) it is silent
+    {
+        Rig& q = *newRig(48000, true);
+        q.prj.g[GP_SYN_SEND] = 0.0f;
+        q.prj.g[GP_SYN_A_RELEASE] = 30.0f;
+        q.prj.scene_data[0].synth = sc.synth;
+        q.cmd(CmdType::Play);
+        q.render(q.ms(220));   // step 2 starts at 250 ms; the gate ended at ~242 ms - 1/16 step
+        q.render(q.ms(110));   // gate end ~242 ms + 30 ms release: silent from ~273 ms
+        CHECK(peakAbs(q.L, q.pos() - q.ms(40), q.pos()) < 1e-3, "line note ended after its length (%.5f)",
+              peakAbs(q.L, q.pos() - q.ms(40), q.pos()));
+    }
+    // the mixer: bus 7 muted -> silent
+    r.prj.bus[6].mute = 1;
+    r.cmd(CmdType::Play);
+    r.render(r.ms(100));
+    CHECK(peakAbs(r.L, r.pos() - r.ms(50), r.pos()) < 1e-4, "bus 7 muted: synth silent");
+    r.prj.bus[6].mute = 0;
+    // stop releases the line's held notes
+    sc.synth.step[0].n[0].len = 16;
+    sc.synth.step[0].n[1].len = 16;
+    r.cmd(CmdType::Play);
+    r.render(r.ms(200));
+    CHECK(peakAbs(r.L, r.pos() - r.ms(50), r.pos()) > 0.01, "a long line note sounds");
+    r.cmd(CmdType::Stop);
+    r.render(r.ms(200));
+    CHECK(peakAbs(r.L, r.pos() - r.ms(80), r.pos()) < 1e-3, "stop: synth line released (%.5f)",
+          peakAbs(r.L, r.pos() - r.ms(80), r.pos()));
+    // live notes (keyboard / MIDI): until SynthOff, also while stopped
+    r.cmd(CmdType::SynthNote, 0, 100, 69);
+    r.render(r.ms(200));
+    CHECK(peakAbs(r.L, r.pos() - r.ms(100), r.pos()) > 0.01, "live synth note sounds");
+    r.cmd(CmdType::SynthOff, 0, 0, 69);
+    r.render(r.ms(200));
+    CHECK(peakAbs(r.L, r.pos() - r.ms(80), r.pos()) < 1e-3, "SynthOff: silent");
+    // GP_SYN_MUTE: the line plays no note
+    r.prj.g[GP_SYN_MUTE] = 1.0f;
+    const uint32_t m0 = r.eng.telemetry().synth_notes.load();
+    r.cmd(CmdType::Play);
+    r.render(r.ms(1000));
+    CHECK(r.eng.telemetry().synth_notes.load() == m0, "GP_SYN_MUTE: no line notes");
+    r.cmd(CmdType::Stop);
+    r.prj.g[GP_SYN_MUTE] = 0.0f;
+    // the same note on every step (len 1): each one sounds its full step (the older off does not cut the newer)
+    {
+        Rig& q = *newRig(48000, true);
+        q.prj.g[GP_SYN_SEND] = 0.0f;
+        q.prj.g[GP_SYN_A_RELEASE] = 5.0f;
+        q.prj.scene_data[0].swing = 66;   // swung odd steps start late: gates overlap the next even step
+        for (int s = 0; s < 16; ++s) {
+            SynthNote& n = q.prj.scene_data[0].synth.step[s].n[0];
+            n.note = 57;
+            n.vel = 100;
+            n.len = 1;
+        }
+        const size_t start = q.pos();
+        q.cmd(CmdType::Play);
+        q.render(q.ms(1600));
+        // An odd step starts 40 ms late (swing 66 %) and its gate (117 ms) ends 32 ms into the next even step, which
+        // retriggered the same note: that older off must not end the even step's note (it sounds to ~117 ms).
+        bool cut = false;
+        for (int k = 2; k < 12; k += 2) {
+            const size_t a = start + q.ms(125.0 * k + 45.0), b = start + q.ms(125.0 * k + 105.0);
+            if (peakAbs(q.L, a, b) < 0.005) cut = true;
+        }
+        CHECK(!cut, "repeated note: the older note's off does not cut the retriggered one");
+    }
+}
+
 static void testBass()
 {
     Rig& r = *newRig(48000, true);
@@ -1567,10 +1765,14 @@ int main(int argc, char** argv)
         testSongThrow();
         testCrush();
         testBass();
+        testSynth();
+        testSynthKnobsCores();
+        testFxBlockExact();
         testStress();
         renderDemo();
     }
     runBenchmark();
+    testFxReservedLines();   // last: the reservation is global
     if (g_fail) printf("test_engine: %d of %d checks FAILED\n", g_fail, g_checks);
     else printf("test_engine: all %d checks passed\n", g_checks);
     return g_fail ? 1 : 0;

@@ -21,7 +21,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <algorithm>
 #include <filesystem>
+#include <vector>
 #include <string>
 
 #include "core/platform.h"
@@ -1509,6 +1511,51 @@ static void smokeScenes()
     CHECK(fabsf(a.project().bpm - bpm) < 0.01f, "BPM - (%.1f)", a.project().bpm);
 }
 
+// 0.4.9: the pads draw only what reaches the redrawn area (pads::setCulling). Exact: with the state frozen (no
+// time passes), a full redraw of the screen and a redraw of each pad's own area give the same pixels, also while
+// hit rings fade, with the selected pad, a pressed-looking state, M / S badges and dimmed (muted) pads.
+static void checkPadCulling()
+{
+    printf("pads: culled redraw == full redraw\n");
+    App& a = app();
+    nav(View::Browser);
+    a.toggleMute(3);
+    a.toggleSolo(9);
+    for (int p : {0, 5, 6, 9, 10, 15}) a.padDown(p, 100, Producer::Touch);
+    runAudio(25);
+    for (int p : {0, 5, 6, 9, 10, 15}) a.padUp(p, Producer::Touch);
+    runAudio(70);   // hit rings mid-fade
+    CHECK(pads::culling(), "culling on by default");
+    pads::setCulling(false);   // the reference: the whole screen drawn the old way
+    lv_obj_invalidate(lv_screen_active());
+    lv_refr_now(g_disp);
+    std::vector<uint16_t> full(lvhost_fb(), lvhost_fb() + 1280 * 720);
+    pads::setCulling(true);    // the whole grid again, culled
+    lv_refr_now(g_disp);
+    int bad = 0;
+    for (int k = 0; k < 1280 * 720; ++k)
+        if (lvhost_fb()[k] != full[k]) {
+            ++bad;
+            printf("  grid: pixel %d,%d differs\n", k % 1280, k / 1280);
+            break;
+        }
+    for (int i = 0; i < kPads; ++i) {
+        pads::invalidateForTest(i);
+        lv_refr_now(g_disp);
+        const uint16_t* fb = lvhost_fb();
+        for (int k = 0; k < 1280 * 720; ++k)
+            if (fb[k] != full[k]) {
+                ++bad;
+                printf("  pad %d: pixel %d,%d differs\n", i, k % 1280, k / 1280);
+                break;
+            }
+    }
+    CHECK(bad == 0, "culled pad redraws == full redraw (%d pads differ)", bad);
+    a.toggleMute(3);
+    a.toggleSolo(9);
+    runAudio(400);
+}
+
 static void checkIdle()
 {
     printf("idle: nothing redraws\n");
@@ -1530,6 +1577,164 @@ static void checkIdle()
     CHECK(pct < 15.0, "redraw %.1f%% per frame", pct);
     app().stop();
     app().stop();
+    runAudio(100);
+}
+
+
+// ------------------------------------------------------------------ redraw report (ORBIT_REDRAW=1)
+// 0.4.9: what the UI redraws while the demo plays, per view: every invalidated area is put in the panel it lies
+// in and charged to the deepest visible object that contains it (class name, size, the parent chain's classes),
+// plus the time LVGL spends per frame on this PC. Prints a table and exits (the normal run is skipped).
+#include <chrono>
+#include <map>
+#include "src/core/lv_obj_class_private.h"
+#include "src/core/lv_obj_draw_private.h"
+
+namespace {
+struct RedrawStat {
+    int count = 0;
+    int64_t px = 0;
+};
+std::map<std::string, RedrawStat> g_rd;
+bool g_rd_on = false;
+
+const char* panelOf(const lv_area_t& a)
+{
+    const int cx = (a.x1 + a.x2) / 2, cy = (a.y1 + a.y2) / 2;
+    if (cy < geo::top_h) return "TOP BAR";
+    auto in = [&](int x, int y, int w, int h) { return cx >= x && cx < x + w && cy >= y && cy < y + h; };
+    if (in(geo::pads_x, geo::pads_y, geo::pads_w, geo::pads_h)) return "PADS";
+    if (in(geo::browser_x, geo::browser_y, geo::browser_w, geo::browser_h)) return "BROWSER panel";
+    if (in(geo::work_x, geo::work_y, geo::work_w, geo::work_h)) return "WORK";
+    if (in(geo::macros_x, geo::macros_y, geo::macros_w, geo::macros_h)) return "MACROS";
+    if (in(geo::timeline_x, geo::timeline_y, geo::timeline_w, geo::timeline_h)) return "TIMELINE";
+    return "other";
+}
+
+lv_obj_t* deepest(lv_obj_t* o, const lv_area_t& a)
+{
+    if (!o || lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN)) return nullptr;
+    lv_area_t c;
+    lv_obj_get_coords(o, &c);
+    const int32_t ext = lv_obj_get_ext_draw_size(o);
+    if (a.x1 < c.x1 - ext || a.y1 < c.y1 - ext || a.x2 > c.x2 + ext || a.y2 > c.y2 + ext) return nullptr;
+    for (int i = (int)lv_obj_get_child_count(o) - 1; i >= 0; --i)
+        if (lv_obj_t* r = deepest(lv_obj_get_child(o, i), a)) return r;
+    return o;
+}
+
+std::string describe(lv_obj_t* o)
+{
+    std::string s;
+    int depth = 0;
+    for (lv_obj_t* p = o; p && depth < 4; p = lv_obj_get_parent(p), ++depth) {
+        const lv_obj_class_t* k = lv_obj_get_class(p);
+        if (!s.empty()) s = std::string(k && k->name ? k->name : "?") + "/" + s;
+        else {
+            char b[64];
+            snprintf(b, sizeof b, "%s %dx%d", k && k->name ? k->name : "?", (int)lv_obj_get_width(p),
+                     (int)lv_obj_get_height(p));
+            s = b;
+        }
+    }
+    return s;
+}
+
+void redrawCb(lv_event_t* e)
+{
+    if (!g_rd_on) return;
+    const lv_area_t* a = (const lv_area_t*)lv_event_get_param(e);
+    if (!a) return;
+    lv_obj_t* o = deepest(lv_layer_top(), *a);
+    if (!o || o == lv_layer_top()) o = deepest(lv_screen_active(), *a);
+    char key[200];
+    snprintf(key, sizeof key, "%-13s %s", panelOf(*a), o ? describe(o).c_str() : "-");
+    RedrawStat& st = g_rd[key];
+    ++st.count;
+    st.px += (int64_t)lv_area_get_width(a) * lv_area_get_height(a);
+}
+
+int countObjs(lv_obj_t* o)
+{
+    if (!o) return 0;
+    int n = 1;
+    for (uint32_t i = 0; i < lv_obj_get_child_count(o); ++i) n += countObjs(lv_obj_get_child(o, i));
+    return n;
+}
+}  // namespace
+
+static void redrawReport()
+{
+    App& a = app();
+    lv_display_add_event_cb(g_disp, redrawCb, LV_EVENT_INVALIDATE_AREA, nullptr);
+    if (getenv("ORBIT_REDRAW_NOCULL")) pads::setCulling(false);   // the old way, for comparison
+    if (getenv("ORBIT_PADSKIP")) pads::setDebugSkip((uint8_t)atoi(getenv("ORBIT_PADSKIP")));
+    const View views[] = {View::Sequence, View::Sample, View::Bass, View::Mixer, View::Browser, View::Fx};
+    const char* names[] = {"SEQUENCE", "SAMPLE", "BASS", "MIXER", "BROWSER", "FX"};
+    const int scene = getenv("ORBIT_REDRAW_SCENE") ? atoi(getenv("ORBIT_REDRAW_SCENE")) : 0;
+    for (int v = 0; v < 6; ++v) {
+        nav(views[v]);
+        lvhost_tap(sceneX(scene), kSceneY);
+        runAudio(200);
+        if (!a.playing()) a.play();
+        runAudio(800);
+        g_rd.clear();
+        g_rd_on = true;
+        const TickProf tp0 = tickProf();
+        double lv_ms = 0;
+        const int kMs = 2000;
+        int acc = 0;
+        for (int t = 0; t < kMs; t += 5) {
+            acc += 5 * 48;
+            while (acc >= 128) {
+                halHostRenderAudio(128, g_audio);
+                acc -= 128;
+            }
+            const auto t0 = std::chrono::steady_clock::now();
+            lvhost_run(5);
+            lv_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+        }
+        g_rd_on = false;
+        int64_t px = 0;
+        int cnt = 0;
+        for (auto& kv : g_rd) {
+            px += kv.second.px;
+            cnt += kv.second.count;
+        }
+        {
+            static DrawProf dp0;
+            const DrawProf& dp = drawProf();
+            printf("  draw pads %.2f ms/s (%.0f calls/s, %.3f ms per call)\n",
+                   (double)(dp.cyc[DrawProf::kPads] - dp0.cyc[DrawProf::kPads]) / 360000.0 / (kMs / 1000.0),
+                   (dp.calls[DrawProf::kPads] - dp0.calls[DrawProf::kPads]) / (kMs / 1000.0),
+                   dp.calls[DrawProf::kPads] - dp0.calls[DrawProf::kPads]
+                       ? (double)(dp.cyc[DrawProf::kPads] - dp0.cyc[DrawProf::kPads]) / 360000.0 /
+                             (dp.calls[DrawProf::kPads] - dp0.calls[DrawProf::kPads])
+                       : 0.0);
+            dp0 = dp;
+        }
+        printf("\n== %s playing scene %c: %d invalidations/s, %.1f%% of the screen per 60 Hz frame, LVGL %.1f ms per "
+               "second on this PC, %d objects on screen\n",
+               names[v], 'A' + scene, cnt * 1000 / kMs, 100.0 * (double)px / (kMs / 1000.0 * 60.0 * 1280.0 * 720.0),
+               lv_ms * 1000.0 / kMs, countObjs(lv_screen_active()) + countObjs(lv_layer_top()));
+        {
+            const TickProf tp1 = tickProf();
+            static const char* const kN[TickProf::kParts] = {"app", "keys", "top", "pads", "cat", "macros", "timeline", "view", "dialogs"};
+            printf("  UI tick (ms per s on this PC):");
+            for (int i = 0; i < TickProf::kParts; ++i) printf(" %s %.2f", kN[i], (double)(tp1.cyc[i] - tp0.cyc[i]) / 360000.0 / (kMs / 1000.0));
+            printf("\n");
+        }
+        std::vector<std::pair<int64_t, std::string>> rows;
+        for (auto& kv : g_rd) rows.push_back({kv.second.px, kv.first});
+        std::sort(rows.begin(), rows.end(), [](auto& x, auto& y) { return x.first > y.first; });
+        for (size_t i = 0; i < rows.size() && i < 14; ++i) {
+            const RedrawStat& st = g_rd[rows[i].second];
+            printf("  %6.1f inv/s %9lld px/s  %s\n", st.count * 1000.0 / kMs, (long long)(st.px * 1000 / kMs),
+                   rows[i].second.c_str());
+        }
+    }
+    a.stop();
+    a.stop();
     runAudio(100);
 }
 
@@ -1595,6 +1800,11 @@ int main()
 
     waitLoader();
     runAudio(600);
+    if (getenv("ORBIT_REDRAW")) {   // the redraw report only (see redrawReport)
+        redrawReport();
+        hal::audioStop();
+        return 0;
+    }
     CHECK(halHostBrightness() == a.settings().brightness, "brightness %d", halHostBrightness());
     CHECK(halHostVolume() == a.settings().volume, "volume %d", halHostVolume());
     CHECK(a.padSampleName(0) && a.padSampleName(0)[0], "kit on the pads");
@@ -1624,6 +1834,7 @@ int main()
     smokeBrowser();
     smokeScenes();
     closeOverlays();
+    checkPadCulling();
     checkIdle();
 
     hal::audioStop();

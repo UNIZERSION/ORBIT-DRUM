@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "bsp/m5stack_tab5.h"
+#include "esp_attr.h"
 #include "esp_chip_info.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -241,6 +242,21 @@ void diagnosticsReset()
     detail::displayDiag(nullptr, true);
 }
 uint32_t freePsram() { return (uint32_t)heap_caps_get_free_size(MALLOC_CAP_SPIRAM); }
+
+namespace {
+constexpr uint32_t kLayoutMagic = 0x4C41594Fu;   // "LAYO"
+RTC_NOINIT_ATTR uint32_t s_layout_magic;
+RTC_NOINIT_ATTR uint32_t s_layout_value;
+}  // namespace
+
+int memLayout() { return s_layout_magic == kLayoutMagic && s_layout_value <= 1u ? (int)s_layout_value : 1; }
+
+void memLayoutRestart(int layout)
+{
+    s_layout_value = layout ? 1u : 0u;
+    s_layout_magic = kLayoutMagic;
+    esp_restart();
+}
 
 int batteryPercent()
 {

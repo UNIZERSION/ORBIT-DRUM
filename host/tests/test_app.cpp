@@ -28,6 +28,7 @@
 #endif
 
 #include "core/kits.h"
+#include "core/synth.h"
 #include "core/platform.h"
 #include "core/sampleio.h"
 #include "hal/hal.h"
@@ -2303,6 +2304,58 @@ static void testBassPersist(App& a)
     pump(2);
 }
 
+// SYNTH (0.4.9): steps are clamped, saved and opened again with the knobs; CLEAR is undoable; presets set the knobs; live
+// notes and the line count in Telemetry::synth_notes.
+static void testSynthPersist(App& a)
+{
+    a.newProject();
+    pump(2);
+    static const char* const kS = "ZZ_TEST_SYNTH";
+    a.renameProject(kS);
+    SynthStep st;
+    st.n[0].note = 60;
+    st.n[0].vel = 100;
+    st.n[0].len = 4;
+    st.n[2].note = 200;   // out of range: clamped to kSynthNoteMax
+    st.n[2].vel = 0;      // clamped to 1
+    st.n[2].len = 99;     // clamped to kMaxSteps
+    a.setSynthStep(5, st);
+    const SynthStep& g5 = a.synthStep(5);
+    CHECK(g5.n[0].note == 60 && g5.n[0].len == 4 && g5.n[1].note == 0);
+    CHECK(g5.n[2].note == kSynthNoteMax && g5.n[2].vel == 1 && g5.n[2].len == kMaxSteps);
+    a.synthPreset(5);   // UNISON SAW
+    CHECK((int)(a.paramGet(ParamRef::global(GP_SYN_MODE)) + 0.5f) == kSynthUnison);
+    CHECK(strstr(testhooks::lastToast(), "UNISON SAW") != nullptr);
+    a.paramSet(ParamRef::global(GP_SYN_CUTOFF), 2500.0f);
+    CHECK(a.saveAs(kS));
+    waitLoader();
+    a.newProject();
+    pump(2);
+    CHECK(a.synthStep(5).n[0].note == 0);
+    CHECK((int)(a.paramGet(ParamRef::global(GP_SYN_MODE)) + 0.5f) == kSynthPoly);   // NEW PROJECT: plain knobs
+    CHECK(a.open(kS));
+    waitLoader();
+    pump(2);
+    CHECK(a.synthStep(5).n[0].note == 60 && a.synthStep(5).n[0].len == 4 && a.synthStep(5).n[1].note == kSynthNoteMax);
+    CHECK((int)(a.paramGet(ParamRef::global(GP_SYN_MODE)) + 0.5f) == kSynthUnison);
+    CHECK(std::fabs(a.paramGet(ParamRef::global(GP_SYN_CUTOFF)) - 2500.0f) < 1.0f);
+    // CLEAR, then UNDO
+    a.synthClear();
+    CHECK(a.synthStep(5).n[0].note == 0);
+    a.undoPattern();
+    CHECK(a.synthStep(5).n[0].note == 60);
+    // live notes and the line both count
+    const uint32_t n0 = a.synthNotes();
+    a.synthKeyOn(64, 100, Producer::Ui);
+    pump(2);
+    a.synthKeyOff(64, Producer::Ui);
+    pump(2);
+    CHECK(a.synthNotes() == n0 + 1);
+    CHECK(a.deleteProject(kS));
+    a.newProject();
+    pump(2);
+}
+
 static void testProjectFiles(App& a, bool have_synth)
 {
     // SAVE over a .orb this session did not open or save asks first; its own file afterwards does not.
@@ -2701,6 +2754,7 @@ int main(int argc, char** argv)
     testProjectFiles(a, have_synth);
     testNewAndDelete(a);
     testBassPersist(a);
+    testSynthPersist(a);
     testEditFixes(a, have_synth);
     testRenameQuantUndo(a);
     testSaveSampleWav(a, have_synth);

@@ -177,7 +177,7 @@ int main()
     Sample* smp[kPads] = {};
     for (int i = 0; i < k.count && i < kPads; ++i) {
         const BuiltinSound& snd = k.sounds[i];
-        smp[i] = sampleWrapEmbedded(snd.pcm, snd.frames, 1, k.rate, snd.name);
+        smp[i] = sampleWrapEmbedded(builtinPcm(kit, i), snd.frames, 1, k.rate, snd.name);   // 0.4.9: packed kits
         Pad& p = proj.pad[i];
         p.layer[0].slot = (int16_t)i;
         for (int l = 1; l < kLayers; ++l) p.layer[l] = Layer{};

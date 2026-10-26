@@ -24,6 +24,21 @@ inline float clamp01(float x) { return !(x >= 0.0f) ? 0.0f : (x > 1.0f ? 1.0f : 
 
 bool valid(const Sample* s) { return s && s->data && s->frames > 0 && (s->channels == 1 || s->channels == 2); }
 
+// 0.4.9: a loop over a whole sample paces its PSRAM traffic while the audio plays (platform.h bulkPace):
+// at(i) inside the loop counts kPaceItems items at a time.
+struct Pace {
+    static constexpr size_t kItems = 4096;
+    BulkPacer p;
+    size_t bytes_per_item, next = kItems;
+    explicit Pace(size_t bpi) : bytes_per_item(bpi) {}
+    void at(size_t i)
+    {
+        if (i < next) return;
+        bulkPace(p, kItems * bytes_per_item);
+        next += kItems;
+    }
+};
+
 // New sample that inherits the display name. path is cleared: an edited sample is unsaved.
 Sample* derive(const Sample* s, uint32_t frames, int channels, uint32_t rate)
 {
@@ -54,7 +69,7 @@ Sample* cropFrames(const Sample* s, uint32_t a, uint32_t b)
     if (b <= a) return nullptr;
     Sample* r = derive(s, b - a, s->channels, s->rate);
     if (!r) return nullptr;
-    memcpy(r->data, s->data + (size_t)a * s->channels, (size_t)(b - a) * s->channels * sizeof(int16_t));
+    bulkCopy(r->data, s->data + (size_t)a * s->channels, (size_t)(b - a) * s->channels * sizeof(int16_t));
     return finish(r);
 }
 
@@ -119,7 +134,9 @@ Sample* resampleCore(const Sample* s, uint64_t step_fx, uint32_t out_frames, uin
     const int kLast = kZc * kRes;   // table index limit (exclusive)
     const int ihalf = (int)half + 1;
     uint64_t pos = 0;
+    Pace pace((size_t)ch * 4u);
     for (uint32_t o = 0; o < out_frames; ++o, pos += step_fx) {
+        pace.at(o);
         const int64_t ci = (int64_t)(pos >> 32);
         const float cf = (float)(uint32_t)pos * (1.0f / 4294967296.0f);
         int64_t j0 = ci - ihalf, j1 = ci + ihalf;
@@ -173,20 +190,26 @@ Sample* opNormalize(const Sample* s, float target_db)
     if (!valid(s)) return nullptr;
     const size_t n = (size_t)s->frames * s->channels;
     int peak = 0;
+    Pace scan(2);
     for (size_t i = 0; i < n; ++i) {
+        scan.at(i);
         const int v = s->data[i] < 0 ? -(int)s->data[i] : (int)s->data[i];
         if (v > peak) peak = v;
     }
     Sample* r = derive(s, s->frames, s->channels, s->rate);
     if (!r) return nullptr;
     if (peak == 0) {   // silence: nothing to scale
-        memcpy(r->data, s->data, n * sizeof(int16_t));
+        bulkCopy(r->data, s->data, n * sizeof(int16_t));
         return finish(r);
     }
     if (target_db > 0.0f) target_db = 0.0f;
     const float target = powf(10.0f, target_db * 0.05f) * 32768.0f;
     const float g = target / (float)peak;
-    for (size_t i = 0; i < n; ++i) r->data[i] = sat16f((float)s->data[i] * g);
+    Pace pace(4);
+    for (size_t i = 0; i < n; ++i) {
+        pace.at(i);
+        r->data[i] = sat16f((float)s->data[i] * g);
+    }
     return finish(r);
 }
 
@@ -196,10 +219,15 @@ Sample* opReverse(const Sample* s)
     Sample* r = derive(s, s->frames, s->channels, s->rate);
     if (!r) return nullptr;
     const uint32_t n = s->frames;
+    Pace pace((size_t)s->channels * 4u);
     if (s->channels == 1) {
-        for (uint32_t i = 0; i < n; ++i) r->data[i] = s->data[n - 1 - i];
+        for (uint32_t i = 0; i < n; ++i) {
+            pace.at(i);
+            r->data[i] = s->data[n - 1 - i];
+        }
     } else {
         for (uint32_t i = 0; i < n; ++i) {
+            pace.at(i);
             r->data[2 * i] = s->data[2 * (n - 1 - i)];
             r->data[2 * i + 1] = s->data[2 * (n - 1 - i) + 1];
         }
@@ -224,7 +252,7 @@ Sample* opFade(const Sample* s, float fade_in_ms, float fade_out_ms)
     const uint32_t nin = (uint32_t)fi, nout = (uint32_t)fo;
     Sample* r = derive(s, n, ch, s->rate);
     if (!r) return nullptr;
-    memcpy(r->data, s->data, (size_t)n * ch * sizeof(int16_t));
+    bulkCopy(r->data, s->data, (size_t)n * ch * sizeof(int16_t));
     // Linear in power: gain = sqrt(t), so the energy ramps linearly.
     for (uint32_t i = 0; i < nin; ++i) {
         const float g = sqrtf((float)i / (float)nin);
@@ -247,7 +275,11 @@ Sample* opGain(const Sample* s, float db)
     Sample* r = derive(s, s->frames, s->channels, s->rate);
     if (!r) return nullptr;
     const size_t n = (size_t)s->frames * s->channels;
-    for (size_t i = 0; i < n; ++i) r->data[i] = sat16f((float)s->data[i] * g);
+    Pace pace(4);
+    for (size_t i = 0; i < n; ++i) {
+        pace.at(i);
+        r->data[i] = sat16f((float)s->data[i] * g);
+    }
     return finish(r);
 }
 
@@ -293,9 +325,11 @@ Sample* opToMono(const Sample* s)
     Sample* r = derive(s, s->frames, 1, s->rate);
     if (!r) return nullptr;
     if (s->channels == 1) {
-        memcpy(r->data, s->data, (size_t)s->frames * sizeof(int16_t));
+        bulkCopy(r->data, s->data, (size_t)s->frames * sizeof(int16_t));
     } else {
+        Pace pace(6);
         for (uint32_t i = 0; i < s->frames; ++i) {
+            pace.at(i);
             const int32_t v = (int32_t)s->data[2 * i] + (int32_t)s->data[2 * i + 1];
             r->data[i] = (int16_t)(v >= 0 ? v / 2 : -((-v) / 2));
         }
@@ -342,7 +376,9 @@ Sample* opBitcrush(const Sample* s, int bits, int downsample)
     const int32_t round = shift > 0 ? (1 << (shift - 1)) : 0;
     const int ch = s->channels;
     int16_t held[2] = {0, 0};
+    Pace pace((size_t)ch * 4u);
     for (uint32_t i = 0; i < s->frames; ++i) {
+        pace.at(i);
         if (i % (uint32_t)downsample == 0) {   // sample-and-hold
             for (int c = 0; c < ch; ++c) {
                 const int32_t v = s->data[(size_t)i * ch + c];

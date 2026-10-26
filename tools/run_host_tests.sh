@@ -24,7 +24,7 @@ cd "$ROOT" || exit 2
 export ZIG_GLOBAL_CACHE_DIR="$ROOT/host/.zig-cache/global"
 export ZIG_LOCAL_CACHE_DIR="$ROOT/host/.zig-cache/local"
 
-ALL="core_basics seq engine sampleio kits app widgets render_scenes shot_chrome shot_sample shot_seqmix shot_browser_dlg ui_shots hal_logic bt_protocol acid"
+ALL="core_basics seq engine sampleio kits app widgets render_scenes shot_chrome shot_sample shot_seqmix shot_browser_dlg ui_shots hal_logic bt_protocol acid synth"
 JOBS=4
 BUILD=1
 SEL=""
@@ -48,7 +48,7 @@ BIN=host/bin
 LOGS=host/out/test_logs
 mkdir -p "$BIN" "$LOGS" host/shots   # (not in git: a fresh clone has none of them)
 CXX="zig c++ -target $T -std=c++17 -O2 -Wall -Wextra -Ifirmware/main -Ihost"
-BASE="$C/params.cpp $C/project.cpp $C/sample.cpp host/platform_host.cpp"
+BASE="$C/params.cpp $C/project.cpp $C/synthmap.cpp $C/synth.cpp $C/sample.cpp host/platform_host.cpp"
 KITOBJ="$BIN/kits_808.o $BIN/kits_909.o"
 # UI programs: LVGL host display + real App + host HAL
 UICXX="$CXX -DLV_CONF_INCLUDE_SIMPLE -I$LV -I$J"
@@ -60,9 +60,9 @@ build_cmd() {
     case "$1" in
         core_basics) echo "$CXX host/tests/test_core_basics.cpp $BASE $C/settings.cpp -o $BIN/test_core_basics.exe" ;;
         seq) echo "$CXX host/tests/test_seq.cpp $C/seq.cpp $BASE -o $BIN/test_seq.exe" ;;
-        engine) echo "$CXX host/tests/test_engine.cpp $C/engine.cpp $C/voice.cpp $C/fx.cpp $C/seq.cpp $C/acid.cpp $BASE -o $BIN/test_engine_seq.exe" ;;
+        engine) echo "$CXX host/tests/test_engine.cpp $C/engine.cpp $C/voice.cpp $C/fx.cpp $C/fxcheck.cpp $C/seq.cpp $C/acid.cpp $BASE -o $BIN/test_engine_seq.exe" ;;
         sampleio) echo "$CXX -g -fsanitize=undefined -I$J host/tests/test_sampleio.cpp $C/wav.cpp $C/sample_ops.cpp $C/slice.cpp $C/library.cpp $C/persist.cpp $BASE $BIN/cJSON.o host/testdata/utf8/utf8.rc -o $BIN/test_sampleio.exe" ;;
-        kits) echo "$CXX host/tests/test_kits.cpp $C/kits.cpp $KITOBJ -o $BIN/test_kits.exe" ;;
+        kits) echo "$CXX host/tests/test_kits.cpp $C/kits.cpp host/platform_host.cpp $KITOBJ -o $BIN/test_kits.exe" ;;
         app) echo "$CXX -I$J -DHAL_HOST_NO_LVGL host/tests/test_app.cpp host/tests/stubs_for_app.cpp $U/app.cpp $(ls $C/*.cpp | tr '\n' ' ') host/hal_host.cpp host/platform_host.cpp $BIN/cJSON.o $KITOBJ -o $BIN/test_app.exe" ;;
         widgets) echo "$CXX -fno-exceptions -fno-rtti -DLV_CONF_INCLUDE_SIMPLE -I$LV host/tests/test_widgets.cpp host/tests/fake_app.cpp host/lvgl_host.cpp $U/theme.cpp $U/ui_scale.cpp $U/widgets.cpp $U/widgets_knob.cpp $U/widgets_input.cpp $U/widgets_overlay.cpp $C/params.cpp $C/settings.cpp host/lib/liborbit_assets.a host/lib/liblvgl.a -o $BIN/test_widgets.exe" ;;
         render_scenes) echo "$CXX host/tests/render_scenes.cpp $C/engine.cpp $C/voice.cpp $C/fx.cpp $C/seq.cpp $C/acid.cpp $C/kits.cpp $BASE $KITOBJ -o $BIN/render_scenes.exe" ;;
@@ -74,6 +74,7 @@ build_cmd() {
         hal_logic) echo "$CXX host/tests/test_hal_logic.cpp -o $BIN/test_hal_logic.exe" ;;
         bt_protocol) echo "$CXX -DHAL_HOST_NO_LVGL host/tests/test_bt_protocol.cpp host/hal_host.cpp $C/settings.cpp -o $BIN/test_bt_protocol.exe" ;;
         acid) echo "$CXX host/tests/test_acid.cpp $C/acid.cpp -o $BIN/test_acid.exe" ;;
+        synth) echo "$CXX host/tests/test_synth.cpp $C/synth.cpp $C/acid.cpp -o $BIN/test_synth.exe" ;;
         *) return 1 ;;
     esac
 }

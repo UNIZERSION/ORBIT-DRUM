@@ -19,6 +19,7 @@
 #include <atomic>
 #include <string.h>
 
+#include "core/prof.h"
 #include "core/spsc.h"
 #include "hal/hal.h"
 #include "ui/theme.h"
@@ -98,6 +99,12 @@ int s_pressed = -1;              // LVGL pointer is down on this pad (press tint
 int s_press_pad = -1;            // pad of the current LVGL press (for CLICKED)
 int s_mode_drawn = -1;
 uint32_t s_rev_sel = 0, s_rev_pads = 0, s_rev_samples = 0, s_rev_project = 0;
+// 0.4.9: draw only what reaches the area being redrawn (setCulling: off = the old way, for A/B measurements).
+// LVGL makes a draw task for every lv_draw_* call, also one wholly outside the clip area (a label is still laid out
+// glyph by glyph), and a pad's redraw area used to reach every neighbour by its 1 px safety margin.
+bool s_cull = true;
+// Diagnostics only (pads::setDebugSkip): parts left out to time the rest. 1 images, 2 hit rings, 4 tints, 8 labels.
+uint8_t s_skip = 0;
 
 // ---- shared with the touch task
 struct Rect {
@@ -324,10 +331,28 @@ void ringRound(lv_layer_t* layer, const lv_area_t& a, uint32_t color, lv_opa_t o
     lv_draw_rect(layer, &r, &a);
 }
 
-void badge(lv_layer_t* layer, int32_t x2, int32_t y1, const char* text, uint32_t bg, uint32_t fg)
+// Culling test: a (label) box reaches the clip area. Labels get 2 px of slack above and below their line box.
+bool reaches(const lv_area_t& box, const lv_area_t& clip, int32_t slack = 0)
+{
+    if (!s_cull) return true;
+    lv_area_t b = box;
+    b.y1 -= slack;
+    b.y2 += slack;
+    return areasOverlap(b, clip);
+}
+
+// What pad r draws, at most: its baked image (margins m around, mb below) and the hit ring (3 px out = m)
+lv_area_t drawnExtent(const lv_area_t& r)
+{
+    return lv_area_t{r.x1 - s_g.m, r.y1 - s_g.m, r.x2 + s_g.m, r.y2 + s_g.mb};
+}
+
+void badge(lv_layer_t* layer, int32_t x2, int32_t y1, const char* text, uint32_t bg, uint32_t fg,
+           const lv_area_t& clip)
 {
     const int32_t sz = s_g.F(14);
     lv_area_t b = {x2 - sz, y1, x2, y1 + sz};
+    if (!reaches(b, clip, 2)) return;
     fillRound(layer, b, bg, LV_OPA_COVER, s_g.F(3));
     drawLabel(layer, text, s_g.font(f_m12), c(fg), LV_OPA_COVER, b.x1, b.y1 + 0, b.x2, LV_TEXT_ALIGN_CENTER);
 }
@@ -361,40 +386,59 @@ void drawPadImage(lv_layer_t* layer, int i, const lv_area_t& r)
     }
 }
 
-void drawPadOverlay(lv_layer_t* layer, int i, const lv_area_t& r)
+void drawPadOverlay(lv_layer_t* layer, int i, const lv_area_t& r, const lv_area_t& clip)
 {
     const PadView& pv = s_pv[i];
     const bool active = i == s_sel;
+    const bool body = reaches(r, clip);   // the tints fill the pad body only
     if (pv.hit_level) {   // pad-hit: accent ring in the gap + a light tint
         const lv_opa_t k = (lv_opa_t)(255 * pv.hit_level / kHitLevels);
         lv_area_t o = r;
         const int32_t g3 = s_g.F(3), g1 = s_g.F(1);
         lv_area_increase(&o, g3, g3);
-        ringRound(layer, o, col::glow, (lv_opa_t)(k * 110 / 255), g1, s_g.r + g3);
+        if (!(s_skip & 2)) ringRound(layer, o, col::glow, (lv_opa_t)(k * 110 / 255), g1, s_g.r + g3);
         lv_area_increase(&o, -g1, -g1);
-        ringRound(layer, o, col::accent, (lv_opa_t)(k * 235 / 255), s_g.F(2), s_g.r + g3 - g1);
-        if (!active) fillRound(layer, r, col::accent, (lv_opa_t)(k * 60 / 255), s_g.r);
+        if (!(s_skip & 2)) ringRound(layer, o, col::accent, (lv_opa_t)(k * 235 / 255), s_g.F(2), s_g.r + g3 - g1);
+        if (!active && body && !(s_skip & 4)) fillRound(layer, r, col::accent, (lv_opa_t)(k * 60 / 255), s_g.r);
     }
-    if (i == s_pressed) fillRound(layer, r, 0xFFFFFF, 46, s_g.r);
+    if (s_skip & 8) return;
+    if (i == s_pressed && body) fillRound(layer, r, 0xFFFFFF, 46, s_g.r);
     const bool dim = pv.mute != 0;
-    if (dim) fillRound(layer, r, col::panel, 130, s_g.r);
+    if (dim && body) fillRound(layer, r, col::panel, 130, s_g.r);
     const int32_t e8 = s_g.F(8);
     if (!active) {
-        drawLabel(layer, kIndex[i], s_g.font(f_r12), c(col::pad_index), dim ? 150 : LV_OPA_COVER, r.x1 + e8,
-                  r.y1 + e8, r.x2 - s_g.F(4));
+        const lv_font_t* f = s_g.font(f_r12);
+        const lv_area_t box = {r.x1 + e8, r.y1 + e8, r.x2 + s_g.m, r.y1 + e8 + (int32_t)lv_font_get_line_height(f) - 1};
+        if (reaches(box, clip, 2))
+            drawLabel(layer, kIndex[i], f, c(col::pad_index), dim ? 150 : LV_OPA_COVER, r.x1 + e8, r.y1 + e8,
+                      r.x2 - s_g.F(4));
     }
     const int32_t lh = (int32_t)lv_font_get_line_height(pv.font);
-    drawLabel(layer, pv.name, pv.font, c(active ? col::on_accent : col::pad_text), dim ? 140 : LV_OPA_COVER,
-              r.x1 + e8, r.y2 - s_g.F(6) - lh, r.x2 - s_g.F(3));
+    const int32_t ny = r.y2 - s_g.F(6) - lh;
+    const lv_area_t nbox = {r.x1 + e8, ny, r.x2 + s_g.m, ny + lh - 1};
+    if (reaches(nbox, clip, 2))
+        drawLabel(layer, pv.name, pv.font, c(active ? col::on_accent : col::pad_text), dim ? 140 : LV_OPA_COVER,
+                  r.x1 + e8, ny, r.x2 - s_g.F(3));
     int32_t bx = r.x2 - s_g.F(5);
     if (pv.mute) {
-        badge(layer, bx, r.y1 + s_g.F(6), "M", col::muted, col::badge_fg);
+        badge(layer, bx, r.y1 + s_g.F(6), "M", col::muted, col::badge_fg, clip);
         bx -= s_g.F(18);
     }
-    if (pv.solo) badge(layer, bx, r.y1 + s_g.F(6), "S", col::accent, col::on_accent);
+    if (pv.solo) badge(layer, bx, r.y1 + s_g.F(6), "S", col::accent, col::on_accent, clip);
 }
 
+void gridDraw(lv_event_t* e);
+
 void gridDrawCb(lv_event_t* e)
+{
+    const uint32_t c0 = profCycles();
+    gridDraw(e);
+    DrawProf& p = drawProf();
+    p.cyc[DrawProf::kPads] += profCycles() - c0;
+    ++p.calls[DrawProf::kPads];
+}
+
+void gridDraw(lv_event_t* e)
 {
     lv_layer_t* layer = lv_event_get_layer(e);
     if (!layer) return;
@@ -408,17 +452,21 @@ void gridDrawCb(lv_event_t* e)
     for (int i = 0; i < kPads; ++i) {
         padArea(i, g, ra[i]);
         lv_area_t ext = ra[i];
-        ext.x1 -= s_g.m + 1;
-        ext.x2 += s_g.m + 1;
-        ext.y1 -= s_g.m + 1;
-        ext.y2 += s_g.mb + 1;
+        if (s_cull) {
+            ext = drawnExtent(ra[i]);   // exactly what the pad draws
+        } else {
+            ext.x1 -= s_g.m + 1;
+            ext.x2 += s_g.m + 1;
+            ext.y1 -= s_g.m + 1;
+            ext.y2 += s_g.mb + 1;
+        }
         vis[i] = areasOverlap(ext, clip);
     }
     for (int i = 0; i < kPads; ++i)
-        if (vis[i] && i != s_sel) drawPadImage(layer, i, ra[i]);
-    if (s_sel >= 0 && s_sel < kPads && vis[s_sel]) drawPadImage(layer, s_sel, ra[s_sel]);
+        if (vis[i] && i != s_sel && !(s_skip & 1)) drawPadImage(layer, i, ra[i]);
+    if (s_sel >= 0 && s_sel < kPads && vis[s_sel] && !(s_skip & 1)) drawPadImage(layer, s_sel, ra[s_sel]);
     for (int i = 0; i < kPads; ++i)
-        if (vis[i]) drawPadOverlay(layer, i, ra[i]);
+        if (vis[i]) drawPadOverlay(layer, i, ra[i], clip);
 }
 
 // ================================================================ selection of played pads
@@ -557,6 +605,22 @@ void touchHook(const hal::TouchPoint* pts, int n, void*)
 }
 
 }  // namespace
+
+void setCulling(bool on)
+{
+    s_cull = on;
+    if (s_grid) lv_obj_invalidate(s_grid);
+}
+
+bool culling() { return s_cull; }
+
+void setDebugSkip(uint8_t mask)
+{
+    s_skip = mask;
+    if (s_grid) lv_obj_invalidate(s_grid);
+}
+
+void invalidateForTest(int i) { invalidatePad(i); }
 
 lv_obj_t* create(lv_obj_t* scr)
 {

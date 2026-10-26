@@ -354,6 +354,16 @@ public:
     void bassRandom();                             // RANDOM: a new acid line for the edited scene (UNDO)
     void bassClear();                              // CLEAR: every step rests (UNDO: undoPattern)
     uint32_t bassNotes() const;                    // Telemetry::bass_notes: the BASS view flashes the step
+
+    // ---- additions, 0.4.9: SYNTH (a polyphonic note line per scene, core/project.h SynthLine; knobs: GP_SYN_*)
+    const SynthStep& synthStep(int s) const;       // step s (0..kMaxSteps-1) of the edited scene's synth line
+    void setSynthStep(int s, const SynthStep& st); // notes are clamped; the playing scene uses it at once
+    void synthClear();                             // CLEAR: the edited scene's synth line (UNDO: undoPattern)
+    // [any task] live notes (keyboard, MIDI): sound until synthKeyOff with the same note (note < 0: all)
+    void synthKeyOn(int note, int vel, Producer from);
+    void synthKeyOff(int note, Producer from);
+    void synthPreset(int i);                       // factory patch i into the project's SYNTH knobs
+    uint32_t synthNotes() const;                   // Telemetry::synth_notes
 };
 
 App& app();

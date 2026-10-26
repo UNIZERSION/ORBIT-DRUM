@@ -36,10 +36,19 @@ void check(bool ok, const char* what, const char* kit, const char* snd, double v
 constexpr double kRate = 48000.0;
 constexpr double kPiD = 3.14159265358979323846;
 
+// 0.4.9: the kits are packed (KPK1); the PCM of a table entry is unpacked by builtinPcm(kit, sound).
+const int16_t* pcmOf(const BuiltinSound& s)
+{
+    for (int k = 0; k < builtinKitCount(); ++k)
+        for (int i = 0; i < builtinKit(k).count; ++i)
+            if (&builtinKit(k).sounds[i] == &s) return builtinPcm(k, i);
+    return nullptr;
+}
+
 std::vector<double> toD(const BuiltinSound& s)
 {
     std::vector<double> x(s.frames);
-    for (uint32_t i = 0; i < s.frames; ++i) x[i] = (double)s.pcm[i] / 32768.0;
+    for (uint32_t i = 0; i < s.frames; ++i) x[i] = (double)pcmOf(s)[i] / 32768.0;
     return x;
 }
 
@@ -321,12 +330,12 @@ void testKit(int ki, const Expect* ex, const char* const* wavs, const char* dir,
         check(s.long_name && s.long_name[0], "long_name", k.name, nm, 0, "non-empty");
         check(s.choke == e.choke, "choke", k.name, nm, s.choke, e.choke ? "1" : "0");
         check(s.bus == e.bus, "bus", k.name, nm, s.bus, "see table");
-        check(s.pcm != nullptr && s.frames > 0, "pcm / frames > 0", k.name, nm, s.frames, "> 0");
-        if (!s.pcm || !s.frames) continue;
+        check(pcmOf(s) != nullptr && s.frames > 0, "pcm / frames > 0", k.name, nm, s.frames, "> 0");
+        if (!pcmOf(s) || !s.frames) continue;
         for (int q = 0; q < p; ++q)
             check(strcmp(k.sounds[q].name, s.name) != 0, "unique name", k.name, nm, q, "unique");
         bool guard = true;
-        for (int g = 1; g <= kGuard; ++g) guard = guard && s.pcm[-g] == 0 && s.pcm[s.frames - 1 + (uint32_t)g] == 0;
+        for (int g = 1; g <= kGuard; ++g) guard = guard && pcmOf(s)[-g] == 0 && pcmOf(s)[s.frames - 1 + (uint32_t)g] == 0;
         check(guard, "guard zeros (4 before/after)", k.name, nm, 0, "all zero");
         bytes += ((size_t)s.frames + 2 * kGuard) * 2;
 
@@ -353,13 +362,13 @@ void testKit(int ki, const Expect* ex, const char* const* wavs, const char* dir,
 
         int16_t mx = 0;
         for (uint32_t i = 0; i < s.frames; ++i) {
-            const int16_t v = s.pcm[i] < 0 ? (int16_t)-s.pcm[i] : s.pcm[i];
+            const int16_t v = pcmOf(s)[i] < 0 ? (int16_t)-pcmOf(s)[i] : pcmOf(s)[i];
             if (v > mx) mx = v;
         }
         check(mx < 32767 && r.peak_db <= -0.9, "no clipping (peak <= -0.9 dBFS)", k.name, nm, r.peak_db, "<= -0.9");
         if (e.kick) check(fabs(r.peak_db + 1.0) <= 0.1, "kick peak -1 dBFS", k.name, nm, r.peak_db, "-1 +-0.1");
         check(fabs(mean) < 0.01, "DC offset < 1 % FS", k.name, nm, mean * 100.0, "|dc| < 1 %");
-        check(abs((int)s.pcm[s.frames - 1]) <= 2, "ends faded to zero", k.name, nm, s.pcm[s.frames - 1], "|x| <= 2");
+        check(abs((int)pcmOf(s)[s.frames - 1]) <= 2, "ends faded to zero", k.name, nm, pcmOf(s)[s.frames - 1], "|x| <= 2");
         char rng[48];
         snprintf(rng, sizeof rng, "%.3f..%.3f s", e.t20_lo, e.t20_hi);
         check(r.t20 >= e.t20_lo && r.t20 <= e.t20_hi, "T20 within recipe range", k.name, nm, r.t20, rng);
@@ -383,11 +392,11 @@ void testKit(int ki, const Expect* ex, const char* const* wavs, const char* dir,
             check(rate == 48000 && ch == 1 && bits == 16, "SD WAV 48k mono 16-bit", k.name, nm, rate, "48000/1/16");
             check(w.size() >= s.frames, "SD WAV >= embedded length", k.name, nm, (double)w.size(), ">= frames");
             if (w.size() == s.frames) {
-                check(memcmp(w.data(), s.pcm, w.size() * 2) == 0, "SD WAV == embedded PCM", k.name, nm, 0, "identical");
+                check(memcmp(w.data(), pcmOf(s), w.size() * 2) == 0, "SD WAV == embedded PCM", k.name, nm, 0, "identical");
             } else if (w.size() > s.frames) {
                 // Capped flash copy: identical up to the start of its 250 ms fade.
                 const size_t same = s.frames > 12000 ? s.frames - 12000 : 0;
-                check(memcmp(w.data(), s.pcm, same * 2) == 0, "SD WAV prefix == embedded", k.name, nm, 0, "identical");
+                check(memcmp(w.data(), pcmOf(s), same * 2) == 0, "SD WAV prefix == embedded", k.name, nm, 0, "identical");
                 printf("      (flash copy capped: SD %.3f s, flash %.3f s)\n", (double)w.size() / kRate, r.len);
             }
         }

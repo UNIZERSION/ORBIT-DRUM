@@ -41,8 +41,22 @@ void aligned_free(void* p)
 }  // namespace
 
 void* bigAlloc(size_t bytes) { return aligned_zalloc(bytes); }
+// Not zeroed: filled with a pattern so a reader of bytes the caller forgot to write sees garbage in tests
+void* bigAllocRaw(size_t bytes)
+{
+    if (bytes == 0) bytes = 1;
+    const size_t rounded = (bytes + 15) & ~size_t(15);
+#if defined(_WIN32)
+    void* p = _aligned_malloc(rounded, 16);
+#else
+    void* p = aligned_alloc(16, rounded);
+#endif
+    if (p) memset(p, 0xA5, rounded);
+    return p;
+}
 void bigFree(void* p) { if (p) aligned_free(p); }
 void* fastAlloc(size_t bytes) { return aligned_zalloc(bytes); }
+bool memIsInternal(const void* p) { return p != nullptr; }
 void fastFree(void* p) { if (p) aligned_free(p); }
 
 uint64_t nowUs()
@@ -71,6 +85,30 @@ bool startWorker(void (*fn)(void*), void* arg, const char*, int, int)
 }
 
 void sleepMs(int ms) { std::this_thread::sleep_for(std::chrono::milliseconds(ms)); }
+
+// The audio helper on the PC runs each job at once (tests stay deterministic; the engine's dual path still runs).
+bool helperStart() { return true; }
+
+bool helperPost(void (*fn)(void*), void* arg)
+{
+    if (!fn) return false;
+    fn(arg);
+    return true;
+}
+
+bool helperDone() { return true; }
+
+int helperStackFree() { return 0; }
+
+// Bulk pacing is a Tab5 matter (PSRAM bus): plain work on the PC
+namespace {
+uint32_t g_bulk_rate = 16 * 1024;
+}
+void bulkPace(BulkPacer& p, size_t bytes) { p.bytes += bytes; }
+void bulkZero(void* dst, size_t n) { memset(dst, 0, n); }
+void bulkCopy(void* dst, const void* src, size_t n) { memcpy(dst, src, n); }
+void bulkSetRate(uint32_t bytes_per_ms) { g_bulk_rate = bytes_per_ms; }
+uint32_t bulkRate() { return g_bulk_rate; }
 
 void workerSignal()
 {

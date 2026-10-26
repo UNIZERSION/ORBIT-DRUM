@@ -1,6 +1,7 @@
 // Widget kit, part 1: icons, buttons, panels, labels, ripple and the small animations.
 // Knob/fader/meter: widgets_knob.cpp. Toggle/select/popup/slider/text field/keyboard:
 // widgets_input.cpp. Modal/toast: widgets_overlay.cpp.
+#include "ui/ui.h"
 #include "ui/widgets.h"
 
 #include <string.h>
@@ -529,6 +530,13 @@ void animHit(lv_obj_t* obj)
 }
 
 // ================================================================ misc helpers
+// ui.h: custom draw callback profile (0.4.9); here because every UI build links widgets.cpp
+DrawProf& drawProf()
+{
+    static DrawProf p;
+    return p;
+}
+
 lv_obj_t* panelCreate(lv_obj_t* parent, int x, int y, int w, int h)
 {
     lv_obj_t* p = lv_obj_create(parent);

@@ -92,6 +92,24 @@ using RenderFn = void (*)(int16_t* lr, int frames, void* user);
 bool audioStart(uint32_t sample_rate, int block_frames, RenderFn render, void* user);
 void audioStop();
 bool audioRunning();
+// 0.4.9: UI profile of the display path since boot (Tab5; zeros on the PC): LVGL refreshes, the LVGL task's CPU
+// cycles inside them (render + flush calls, the waits for the PPA excluded), those waits, and the areas / pixels
+// the refreshes redrew (after LVGL joined them).
+struct DisplayStats {
+    uint32_t refreshes = 0, areas = 0;
+    uint64_t px = 0, refr_cycles = 0, wait_cycles = 0;
+};
+void displayStats(DisplayStats& out);
+// 0.4.9: memory layout. 1 (default): the reverb's lines in internal RAM, the LVGL draw buffers in PSRAM;
+// 0: the layout up to 0.4.9 (draw buffers in internal SRAM, reverb lines in PSRAM), for A/B measurements.
+// memLayoutRestart() keeps the choice in RTC memory over a software restart (a power-on forgets it).
+int memLayout();
+void memLayoutRestart(int layout);
+// displayStart(): the LVGL draw buffers in PSRAM even when internal SRAM would be free (layout 1)
+void displaySetDrawInPsram(bool on);
+// 0.4.9: render time / block period of the audio task, following rises at once and falls over ~8 blocks (0 when
+// stopped). Bulk memory work (core/platform.h bulkPace) waits while it is high. Any task.
+float audioLoad();
 void audioSetVolume(int percent);       // codec volume 0..100
 void audioSetOutput(orbit::AudioOut out);
 bool headphonesInserted();

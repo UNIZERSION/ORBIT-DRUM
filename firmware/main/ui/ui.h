@@ -12,6 +12,21 @@
 namespace orbit::ui {
 
 void build(lv_display_t* disp);   // after themeInit() and app().init()
+// 0.4.9: CPU cycles of each part of the UI tick (60 Hz) since boot, summed (Tab5; zeros on the PC). Read by the
+// test console's "uistat" (diagnostics: torn reads are acceptable).
+struct TickProf {
+    enum Part { kApp = 0, kKeys, kTop, kPads, kCat, kMacros, kTimeline, kView, kDialogs, kParts };
+    uint64_t cyc[kParts] = {};
+    uint32_t ticks = 0;
+};
+const TickProf& tickProf();
+// 0.4.9: CPU cycles inside the custom draw callbacks (their lv_draw_* calls run at once: LV_OS_NONE), since boot.
+struct DrawProf {
+    enum Part { kPads = 0, kStepGrid, kWave, kParts };
+    uint64_t cyc[kParts] = {};
+    uint32_t calls[kParts] = {};
+};
+DrawProf& drawProf();
 // Bakes the stage background (ui_bg.cpp, ~0.9 Mpx of float math) ahead of build(), from any task and
 // without LVGL calls: app_main runs it on core 1 while core 0 mounts the card, loads the project and
 // starts the display; build() then only waits for it (or bakes itself when this never ran). Once.
@@ -40,7 +55,12 @@ namespace topbar   { lv_obj_t* create(lv_obj_t* scr); void refresh(); }
 // touchGeometry(): the touch task's pad rectangles follow the drawn panel (after a maximize / restore).
 // installTouchHook(): the touch task's hook hands every sample to pads::touchInput and
 // view_bass::touchInput (0.4.3: the BASS KEYS keyboard with several fingers).
-namespace pads     { lv_obj_t* create(lv_obj_t* scr); void refresh(); void installTouchHook(); void touchGeometry();
+// setCulling (0.4.9): draw only what reaches the redrawn area (default on; off = the old way, A/B measurements);
+// invalidateForTest(i): pad i's redraw area (PC tests).
+// setDebugSkip: diagnostics only, parts left out (1 images, 2 hit rings, 4 tints, 8 labels) to time the rest.
+namespace pads     { void setCulling(bool on); bool culling(); void invalidateForTest(int i);
+                     void setDebugSkip(uint8_t mask);
+                     lv_obj_t* create(lv_obj_t* scr); void refresh(); void installTouchHook(); void touchGeometry();
                      void touchInput(const hal::TouchPoint* pts, int n); }
 namespace catpanel { lv_obj_t* create(lv_obj_t* scr); void refresh(); }   // left-bottom BROWSER
 namespace macros   { lv_obj_t* create(lv_obj_t* scr); void refresh(); }   // right panel

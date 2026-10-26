@@ -9,7 +9,7 @@ touch screen of the M5Stack Tab5. It has 16 multi-touch pads, a step sequencer, 
 effects, scenes and a song arrangement, and an acid bass line with a live keyboard. The engine renders at 48 kHz
 with about 7 ms of output latency.
 
-Current version: **0.4.8**. Polish manual and version history: [docs/INSTRUKCJA_PL.md](docs/INSTRUKCJA_PL.md).
+Current version: **0.4.9**. Polish manual and version history: [docs/INSTRUKCJA_PL.md](docs/INSTRUKCJA_PL.md).
 
 ## Features
 
@@ -25,6 +25,15 @@ Current version: **0.4.8**. Polish manual and version history: [docs/INSTRUKCJA_
   line per scene, from C0 to C5. Edit it on a step keyboard or by drawing notes on the line.
   **KEYS** mode: a two-octave live keyboard played with several fingers (OCT ± from C0 up to C7). The newest key
   sounds, and lifting it returns to the key still held; with SLIDE the notes glide like a 303. Nothing is recorded.
+- **SYNTH** (0.4.9, its editing view comes next): a 4-voice virtual-analog synth in the manner of a SYSTEM-1 (two
+  oscillators with COLOR, sync, ring and cross-mod, sub and noise, -24 / -12 dB filters, two envelopes, LFO, POLY /
+  MONO / UNISON, 8 factory patches). Every scene has a synth note line (chords of up to 4 notes, each with its own
+  length) that plays with the drums and the bass on mixer channel 7.
+- **Performance** (0.4.9, the sound bit-identical to before): the SYNTH renders on the second CPU core while the
+  drums render; the reverb's delay lines live in internal RAM and the display's draw buffers in PSRAM (the reverb
+  costs half, the UI draws faster); the pads redraw only what changes. The dense demo scene D takes ~48 % of the audio
+  core (72 % before). Big memory work while the audio plays (loading or editing big samples, unpacking a kit) yields
+  to the audio, so it causes no dropouts.
 - **Scenes and song**: scenes A–D switch on the bar. A 16-slot song arrangement has an FX-throw row and FOLLOW
   playback.
 - **Browser**: samples and kits on the microSD card, a category list next to the search, search with an

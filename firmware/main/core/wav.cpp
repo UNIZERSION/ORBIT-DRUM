@@ -404,7 +404,14 @@ Sample* load(Src& src, const char* name, const char* path, WavInfo* info, WavErr
     }
 
     if (src.mem) {
-        convertFrames(P, src.mem + P.data_off, (uint32_t)frames, s->data, out_ch);
+        // in chunks: one pass over the whole sample, paced while the audio plays (platform.h)
+        BulkPacer pace;
+        const uint32_t kStep = 8192;
+        for (uint32_t f = 0; f < (uint32_t)frames; f += kStep) {
+            const uint32_t k = (uint32_t)frames - f < kStep ? (uint32_t)frames - f : kStep;
+            convertFrames(P, src.mem + P.data_off + (size_t)f * P.block, k, s->data + (size_t)f * out_ch, out_ch);
+            bulkPace(pace, (size_t)k * (P.block + (size_t)out_ch * 2u));
+        }
     } else {
         // Reads start at 512-byte aligned file offsets into an aligned buffer, so FATFS can DMA
         // whole sectors straight into it. A frame split between two blocks goes through carry[].
@@ -423,6 +430,7 @@ Sample* load(Src& src, const char* name, const char* path, WavInfo* info, WavErr
         uint64_t left = frames;   // frames still to convert
         int16_t* out = s->data;
         bool ok = true;
+        BulkPacer pace;
         while (left > 0) {
             const uint32_t n = src.readSome(fpos, buf, kBlockBytes);
             if (n <= skip) {
@@ -458,6 +466,7 @@ Sample* load(Src& src, const char* name, const char* path, WavInfo* info, WavErr
                 memcpy(carry, p, avail);
                 carry_len = avail;
             }
+            bulkPace(pace, (size_t)n + (size_t)whole * out_ch * 2u);
         }
         bigFree(raw);
         if (!ok) {

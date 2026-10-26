@@ -21,6 +21,7 @@
 #include "bsp/m5stack_tab5.h"
 #include "driver/ppa.h"
 #include "esp_cache.h"
+#include "esp_cpu.h"
 #include "esp_heap_caps.h"
 #include "esp_lcd_mipi_dsi.h"
 #include "esp_lcd_panel_ops.h"
@@ -91,6 +92,12 @@ int64_t s_started_at = 0;                         // displayStart finished (reve
 // LVGL draw buffers reserved by displayReserveBuffers()
 void* s_resv[2] = {};
 int s_resv_rows = 0;
+bool s_draw_psram = false;   // displaySetDrawInPsram: no internal reservation in displayStart
+
+// UI profile (displayStats): LVGL task only, read by any task (diagnostics: torn reads are acceptable)
+DisplayStats s_st;
+uint32_t s_refr_t0 = 0;
+uint64_t s_wait_at_start = 0;
 
 SemaphoreHandle_t s_vsync = nullptr;
 volatile uint32_t s_vsync_seq = 0;
@@ -383,7 +390,9 @@ void waitForFlush(lv_display_t*)
     if (s_transfer_pending) {
         // LVGL calls this after rendering into its OTHER buffer: CPU and PPA overlap
         stage(&s_lv_stage, 10);
+        const uint32_t w0 = (uint32_t)esp_cpu_get_cycle_count();
         xSemaphoreTake(s_done, portMAX_DELAY);
+        s_st.wait_cycles += (uint32_t)esp_cpu_get_cycle_count() - w0;
         s_transfer_pending = false;
     }
 }
@@ -410,6 +419,8 @@ void flushCb(lv_display_t* disp, const lv_area_t* area, uint8_t* pixels)
         s_frame_first = false;
         for (uint32_t i = 0; i < disp->inv_p; i++) {
             if (disp->inv_area_joined[i]) continue;
+            ++s_st.areas;   // uistat: the areas after LVGL joined them
+            s_st.px += (uint64_t)lv_area_get_size(&disp->inv_areas[i]);
             if (job.ncover == kMaxCover) {
                 job.ncover = 0;   // too many: leave out only this piece
                 break;
@@ -446,6 +457,17 @@ void refrStart(lv_event_t*)
     s_frame_first = true;
     ++s_refr_seq;
     __atomic_store_n(&s_lvgl_task, xTaskGetCurrentTaskHandle(), __ATOMIC_RELAXED);
+    s_refr_t0 = (uint32_t)esp_cpu_get_cycle_count();
+    s_wait_at_start = s_st.wait_cycles;
+}
+
+// LVGL's refresh is over: its cycles without the waits for the PPA
+void refrReady(lv_event_t*)
+{
+    const uint32_t all = (uint32_t)esp_cpu_get_cycle_count() - s_refr_t0;
+    const uint64_t waited = s_st.wait_cycles - s_wait_at_start;
+    s_st.refr_cycles += all > waited ? all - (uint32_t)waited : 0u;
+    ++s_st.refreshes;
 }
 
 // The display is not registered through lvgl_port_add_disp_*, so the port task is woken here for
@@ -587,6 +609,8 @@ void displayDiag(Diagnostics* out, bool reset)
 }  // namespace detail
 
 // ---------------------------------------------------------------- public
+void displaySetDrawInPsram(bool on) { s_draw_psram = on; }
+
 bool displayReserveBuffers()
 {
     if (s_resv_rows) return true;
@@ -718,8 +742,9 @@ lv_display_t* displayStart()
     if (!s_vsync || !s_queue || !s_done || !s_ppa_done || !s_panel_events) return nullptr;
 
     // LVGL draw buffers: the internal-SRAM pair reserved at boot (fast CPU rendering and PPA reads), else
-    // a late reservation attempt, else PSRAM
-    if (!s_resv_rows) displayReserveBuffers();
+    // a late reservation attempt, else PSRAM (0.4.9, memory layout 1: PSRAM by choice: the internal SRAM holds
+    // the reverb's lines, whose PSRAM traffic slowed the drawing more than drawing into PSRAM does)
+    if (!s_resv_rows && !s_draw_psram) displayReserveBuffers();
     int rows = s_resv_rows;
     void* draw0 = s_resv[0];
     void* draw1 = s_resv[1];
@@ -746,6 +771,7 @@ lv_display_t* displayStart()
         lv_display_add_event_cb(d, wakeDisplay, LV_EVENT_INVALIDATE_AREA, nullptr);
         lv_display_add_event_cb(d, wakeDisplay, LV_EVENT_REFR_REQUEST, nullptr);
         lv_display_add_event_cb(d, refrStart, LV_EVENT_REFR_START, nullptr);
+        lv_display_add_event_cb(d, refrReady, LV_EVENT_REFR_READY, nullptr);
         s_disp = d;
         applyFrameCap();
         s_started_at = esp_timer_get_time();
@@ -826,3 +852,6 @@ bool displayReadBack(int step, void (*row)(const uint16_t* px, int w, int y, voi
 }
 
 }  // namespace hal
+
+// hal.h (0.4.9): the UI profile of the display path
+void hal::displayStats(hal::DisplayStats& out) { out = hal::s_st; }

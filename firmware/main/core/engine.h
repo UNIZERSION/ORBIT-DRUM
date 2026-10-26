@@ -40,6 +40,10 @@ enum class CmdType : uint8_t {
     // line by itself; while a held live note (pad 0) sounds, the line's notes are skipped (the player has the voice).
     BassNote,
     BassOff,       // closes the live note's gate
+    // SYNTH (0.4.9) live notes (keyboard, MIDI): value = MIDI note, vel 1..127; held until SynthOff with the same
+    // note (value < 0: every live note). The sequencer plays the scene's synth line by itself.
+    SynthNote,
+    SynthOff,
     Count
 };
 
@@ -97,8 +101,26 @@ struct Telemetry {
     // it when Telemetry::cpu stays above ~0.8 and gives voices back slowly below ~0.6.
     std::atomic<uint8_t> voice_cap{(uint8_t)kVoices};
     std::atomic<uint32_t> bass_notes{0};    // ACID BASS notes started (sequencer and live): the BASS view flashes
+    std::atomic<uint32_t> synth_notes{0};   // SYNTH notes started (line and live), 0.4.9
+    std::atomic<uint8_t> synth_voices{0};   // SYNTH voices sounding
+    // Profile (0.4.9): average CPU cycles per block of each part of a block on the audio core, over the last 256
+    // blocks (0 on the PC, which has no cycle counter here): before the voices (commands, sequencer), pad voices
+    // (with their hits), ACID BASS, SYNTH (its notes, knobs and mix plus, in dual mode, the wait for the helper core,
+    // else its whole render), preview, master (buses, FX, limiter), after (telemetry, retire, outbox).
+    enum ProfPart { kProfPre = 0, kProfVoices, kProfBass, kProfSynth, kProfPreview, kProfMaster, kProfPost, kProfParts };
+    std::atomic<uint32_t> prof[kProfParts];
+    std::atomic<uint32_t> prof_job{0};           // the SYNTH render alone (on the helper core in dual mode)
+    std::atomic<uint32_t> prof_wait{0};          // the audio core waiting for the helper (part of kProfSynth)
+    std::atomic<uint32_t> prof_fx{0};            // FX bus: reverb + delay (part of kProfMaster)
+    std::atomic<uint32_t> prof_dly{0};           // of that: the stereo delay
+    std::atomic<uint32_t> prof_rev{0};           // of that: the plate reverb
+    std::atomic<uint32_t> prof_voices_x100{0};   // average sounding pad voices per block x 100
+    std::atomic<uint32_t> prof_block{0};         // frames per block of that average
+    std::atomic<uint32_t> helper_stalls{0};      // blocks whose SYNTH the helper core did not finish in 5 ms (skipped)
+    std::atomic<uint8_t> dual{0};                // 1: the SYNTH renders on the helper core
     Telemetry()
     {
+        for (auto& p : prof) p.store(0u, std::memory_order_relaxed);
         for (auto& b : bus_peak) b.store(0.0f, std::memory_order_relaxed);
         for (auto& m : master_peak) m.store(0.0f, std::memory_order_relaxed);
         for (auto& e : pad_env) e.store(0.0f, std::memory_order_relaxed);
@@ -137,6 +159,17 @@ public:
     void setVoiceLimit(int n);
     int voiceLimit() const;
     static constexpr int kMinVoiceLimit = 8;
+    // SYNTH on the second core (0.4.9, default on): it renders on the helper core (platform.h) while the pads render
+    // on the audio core. Off, or without a helper, it renders inline. The output is the same either way. Any task.
+    void setDualCore(bool on);
+    bool dualCore() const;
+    // Stereo delay code (0.4.9): false = block-wise (default), true = the per-sample reference code (same output;
+    // for A/B measurements). Any task.
+    void setFxReference(bool on);
+    bool fxReference() const;
+    // Diagnostics only (0.4.9): the FX bus silent and skipped (memory-contention tests). Default off. Any task.
+    void setFxBypass(bool on);
+    bool fxLinesInternal() const;   // the reverb's lines are in the internal block of FxBus::reserveLines
 
 private:
     EngineImpl* impl_;

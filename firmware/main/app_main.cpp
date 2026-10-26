@@ -12,6 +12,7 @@
 // Settings.midi_usb), the MIDI clock-out service timer, hal::setAudioIdle (deferred NVS writes) and, on its
 // first tick, brightness / frame cap / volume / output from the settings. app_main returns afterwards;
 // the LVGL task, the audio task, the touch task, the loader task and the USB host keep running.
+#include "core/fx.h"
 #include "core/settings.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -72,8 +73,21 @@ extern "C" void app_main(void)
     using orbit::ui::app;
 
     s_t_stage = esp_timer_get_time();
-    // First: the two 1280x32 SRAM draw buffers, before fragmentation makes their size a matter of luck
-    if (!hal::displayReserveBuffers()) ESP_LOGW(TAG, "draw buffers will be in PSRAM");
+    // First, before fragmentation makes their size a matter of luck: the reverb's lines in internal RAM (memory
+    // layout 1, the default since 0.4.9; the LVGL draw buffers go to PSRAM) or, layout 0, the two 1280x32 SRAM
+    // draw buffers as up to 0.4.9
+    const int layout = hal::memLayout();
+    // (the lines take ~146 KB, less than the 160 KB the SRAM draw buffers took, so the internal RAM left for DMA
+    // grows; without room for the lines the draw buffers stay in SRAM as before)
+    const bool lines = layout == 1 && orbit::FxBus::reserveLines(48000);
+    if (layout == 1 && !lines) ESP_LOGW(TAG, "no internal RAM for the reverb lines: layout 0");
+    if (lines) {
+        hal::displaySetDrawInPsram(true);
+    } else if (!hal::displayReserveBuffers()) {
+        ESP_LOGW(TAG, "draw buffers will be in PSRAM");
+    }
+    ESP_LOGI(TAG, "memory layout %d: reverb lines %s, draw buffers %s", layout,
+             orbit::FxBus::linesReserved() ? "internal" : "PSRAM", lines ? "PSRAM" : "internal");
     // The stage background bakes in parallel with the rest of the start (build() waits for it, or bakes
     // itself when the task could not start). Priority 3 on core 1: nothing else runs there yet.
     if (xTaskCreatePinnedToCore(bakeTask, "orbit_bake", 4096, nullptr, 3, nullptr, 1) != pdPASS)

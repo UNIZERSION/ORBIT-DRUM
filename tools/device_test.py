@@ -12,6 +12,7 @@ headphones, Bluetooth), plugging headphones, the feel of the touch, pairing Blue
 """
 import argparse
 import base64
+import binascii
 import os
 import re
 import struct
@@ -148,6 +149,8 @@ class Device:
         nudged = False
         while time.time() < end:
             for line in self.lines(0.6 if not nudged else max(0.1, end - time.time())):
+                if line.startswith("T>pong") and not text.startswith("ping"):
+                    continue   # the answer to a nudge (a long command like fxcheck keeps the console busy)
                 if line.startswith("T>"):
                     return line[2:]
             if not nudged:
@@ -192,7 +195,15 @@ class Device:
     def drag(self, x1, y1, x2, y2, ms=300):
         return self.cmd("drag %d %d %d %d %d" % (x1, y1, x2, y2, ms), timeout=3 + ms / 1000)
 
-    def shot(self, path, step=2):
+    def shot(self, path, step=2, tries=3):
+        # a log line of another task (e.g. the Bluetooth status every 10 s) can land inside an S: line: try again
+        for _ in range(tries):
+            if self.shot_once(path, step):
+                return True
+            time.sleep(0.3)
+        return False
+
+    def shot_once(self, path, step):
         self.log.write("%8.2f >>> shot %d\n" % (time.time() - self.t0, step))
         self.ser.write(("shot %d\n" % step).encode())
         head, parts = None, {}
@@ -209,7 +220,11 @@ class Device:
         if not head:
             return False
         nw, nh, nbytes, crc = int(head[1]), int(head[2]), int(head[3]), int(head[4], 16)
-        data = b"".join(base64.b64decode(parts[i]) for i in sorted(parts))
+        try:
+            data = b"".join(base64.b64decode(parts[i]) for i in sorted(parts))
+        except (ValueError, binascii.Error):
+            print("  ! shot %s: damaged line, again" % os.path.basename(path))
+            return False
         if len(data) != nbytes or (zlib.crc32(data) & 0xFFFFFFFF) != crc:
             print("  ! shot %s: damaged (%d of %d bytes)" % (os.path.basename(path), len(data), nbytes))
             return False
@@ -286,6 +301,9 @@ def t_transport(d, rep, out):
 def t_demo(d, rep, out):
     """0.4.7: every start opens the one demo (111 BPM, scene B = 909 groove + the 303 line). Run it first."""
     print("demo")
+    if d.state().get("playing") == 1:   # left playing by an earlier run
+        d.tap(*PLAY)
+        time.sleep(0.5)
     s = d.state()
     rep.check("demo tempo 111 BPM", abs(s.get("bpm", 0) - 111.0) < 0.05, "bpm=%s" % s.get("bpm"))
     d.tap(*tab("sequence"))
@@ -314,6 +332,25 @@ def t_demo(d, rep, out):
     rep.check("demo stops", d.state().get("playing") == 0)
     d.tap(*tab("sequence"))
     time.sleep(0.6)
+    # 0.4.9: scene D adds SYNTH chord stabs (3 notes each, 4 chords a bar); the synth's cost shows in cpu
+    d.tap(320 + 3 * 29 + 12, 621)   # scene D
+    time.sleep(0.5)
+    a0 = d.audio()
+    x0 = d.state().get("xruns", 0)
+    d.tap(*PLAY)
+    time.sleep(1.0)
+    cpu = 0.0
+    for _ in range(8):   # the densest demo part (up to 10 drum voices + 4 synth voices): ~0.68 median on 0.4.9
+        cpu = max(cpu, d.audio().get("cpu", 0))
+        time.sleep(0.2)
+    a = d.audio()
+    x1 = d.state().get("xruns", 0)
+    rep.check("SYNTH chords play in scene D", a.get("synth_notes", 0) - a0.get("synth_notes", 0) >= 9,
+              "synth notes %s -> %s" % (a0.get("synth_notes"), a.get("synth_notes")))
+    rep.check("scene D (drums + bass + synth): no dropouts, cpu peak below 90 %", x1 == x0 and cpu < 0.9,
+              "xruns %s -> %s, cpu peak %.3f" % (x0, x1, cpu))
+    d.tap(*PLAY)
+    time.sleep(0.4)
     d.tap(320 + 0 * 29 + 12, 621)   # scene A again
     time.sleep(0.5)
 
@@ -545,9 +582,152 @@ def t_keyboard(d, rep, out):
     time.sleep(0.6)
 
 
+def kv(reply):
+    out = {}
+    for tok in (reply or "").split()[1:]:
+        if "=" in tok:
+            k, v = tok.split("=", 1)
+            try:
+                out[k] = float(v)
+            except ValueError:
+                out[k] = v
+    return out
+
+
+def t_profile(d, rep, out):
+    """0.4.9: where the audio core's time goes in demo scenes A, B and D: SYNTH inline (cores 1) or on the second core
+    (cores 2), and with the UI paused for a moment (quiet: what the UI's drawing costs the audio core). Engine profile
+    (cycles per 64-frame block -> % of the block), core load, dropouts. Before: the block-wise delay must equal its
+    reference bit for bit on this CPU (fxcheck), and the memory access costs (membench)."""
+    print("profile")
+    x0 = d.state().get("xruns", 0)
+    r = kv(d.cmd("fxcheck", timeout=90))
+    x1 = d.state().get("xruns", 0)
+    rep.check("fxcheck: block-wise delay == reference, bit for bit (no dropouts meanwhile)", r.get("ran") == 1 and
+              r.get("delay_diff") == 0 and r.get("delay_block", 0) > 0 and x1 == x0,
+              "rate %s, %s samples, delay diff %s (block path %s of %s blocks), %s ms, xruns %s -> %s" % (
+                  r.get("rate"), r.get("samples"), r.get("delay_diff"), r.get("delay_block"), r.get("blocks"),
+                  r.get("ms"), x0, x1))
+    m = kv(d.cmd("membench", timeout=60))
+    line = "  memory, cycles per access on the audio core: " + " ".join(
+        "%s=%s" % (k, ("%.2f" % (m[k + "_x100"] / 100.0)) if m.get(k + "_x100", -1) >= 0 else "-")
+        for k in ("psram", "internal", "rtc", "tcm")) + " | free: internal %s (largest %s), tcm %s, rtc %s" % (
+        m.get("free_internal"), m.get("largest"), m.get("tcm"), m.get("rtc"))
+    print(line)
+    d.log.write(line + "\n")
+    rate = 44100 if d.state().get("bt") == 1 else 48000   # Bluetooth on: the engine runs at 44.1 kHz
+    budget = 360e6 * 64 / rate   # cycles of one 64-frame block at 360 MHz
+    print("  engine rate %d Hz, %.0f cycles per 64-frame block" % (rate, budget))
+    parts = ["pre", "pads", "bass", "synth", "preview", "master", "post"]
+    d.tap(*tab("sequence"))
+    time.sleep(0.6)
+    for scene in (0, 1, 3):
+        d.tap(320 + scene * 29 + 12, 621)
+        time.sleep(0.5)
+        d.tap(*PLAY)
+        time.sleep(1.5)
+        for cores, fx_new in ((1, 1), (2, 1)):
+            d.cmd("cores %d" % cores)
+            d.cmd("fxalgo %d" % fx_new)
+            time.sleep(0.6)
+            d.cmd("load")   # the window starts here
+            x0 = d.state().get("xruns", 0)
+            cpu = []
+            for _ in range(10):
+                time.sleep(0.3)
+                cpu.append(d.audio().get("cpu", 0))
+            p = kv(d.cmd("prof"))
+            ld = kv(d.cmd("load"))
+            x1 = d.state().get("xruns", 0)
+            blk = p.get("block", 64) or 64
+            b = budget * blk / 64
+            pct = " ".join("%s=%.1f" % (k, 100.0 * p.get(k, 0) / b) for k in parts)
+            total = sum(p.get(k, 0) for k in parts) * 100.0 / b
+            line = ("  scene %s cores %d fx %s: audio core %.1f %% [%s] synth job %.1f %% wait %.1f %% fx %.1f %% "
+                    "(delay %.1f, reverb %.1f) voices %.2f | cpu mean %.3f max %.3f | core0 %s %% core1 %s %% | "
+                    "stack free audio %s dsp %s | %s" % (
+                        "ABCD"[scene], cores, "new" if fx_new else "old", total, pct, 100.0 * p.get("job", 0) / b,
+                        100.0 * p.get("wait", 0) / b, 100.0 * p.get("fx", 0) / b, 100.0 * p.get("dly", 0) / b,
+                        100.0 * p.get("rev", 0) / b, p.get("voices_x100", 0) / 100.0, sum(cpu) / len(cpu), max(cpu),
+                        ld.get("core0"), ld.get("core1"), ld.get("audio_stack_free"), ld.get("dsp_stack_free"),
+                        ld.get("tasks")))
+            print(line)
+            d.log.write(line + "\n")
+            rep.check("profile scene %s, %d core(s), fx %s: no dropouts" % ("ABCD"[scene], cores,
+                                                                            "new" if fx_new else "old"), x1 == x0,
+                      "xruns %s -> %s" % (x0, x1))
+        # the same with the UI paused (2 cores)
+        q = kv(d.cmd("quiet 1500", timeout=10))
+        b = budget * (q.get("block", 64) or 64) / 64
+        qtotal = sum(q.get(k, 0) for k in parts) * 100.0 / b
+        line = ("  scene %s cores 2 UI PAUSED: audio core %.1f %% [%s] synth job %.1f %% fx %.1f %% (delay %.1f, reverb "
+                "%.1f) voices %.2f | memory psram %.2f internal %s cycles/access" % (
+                    "ABCD"[scene], qtotal, " ".join("%s=%.1f" % (k, 100.0 * q.get(k, 0) / b) for k in parts),
+                    100.0 * q.get("job", 0) / b, 100.0 * q.get("fx", 0) / b, 100.0 * q.get("dly", 0) / b,
+                    100.0 * q.get("rev", 0) / b, q.get("voices_x100", 0) / 100.0, q.get("psram_x100", 0) / 100.0,
+                    ("%.2f" % (q["internal_x100"] / 100.0)) if q.get("internal_x100", -1) >= 0 else "-"))
+        print(line)
+        d.log.write(line + "\n")
+        d.tap(*PLAY)
+        time.sleep(0.4)
+    d.cmd("cores 2")
+    d.cmd("fxalgo 1")
+    p = kv(d.cmd("prof"))
+    rep.check("helper core: no stalls", p.get("stalls", 0) == 0, "stalls=%s helper stack free %s B" % (
+        p.get("stalls"), p.get("helper_free")))
+    d.tap(320 + 0 * 29 + 12, 621)   # scene A again
+    time.sleep(0.5)
+
+
+def t_bulk(d, rep, out):
+    """0.4.9: big PSRAM work while the demo plays (scene D, 2 cores): the old unpaced memset ("raw", what bigAlloc
+    did up to 0.4.9) for comparison, then the paced kinds at the default rate (they must not cause dropouts), then
+    faster rates (the margin)."""
+    print("bulk memory work while playing")
+    d.tap(*tab("sequence"))
+    time.sleep(0.6)
+    d.tap(320 + 3 * 29 + 12, 621)   # scene D
+    time.sleep(0.5)
+    d.cmd("cores 2")
+    rate0 = kv(d.cmd("bulkrate")).get("bytes_per_ms") or 16384
+    d.tap(*PLAY)
+    time.sleep(1.5)
+
+    def run(cmd):
+        x0 = d.state().get("xruns", 0)
+        r = kv(d.cmd(cmd, timeout=30))
+        time.sleep(0.3)
+        return r, d.state().get("xruns", 0) - x0
+
+    r, dx = run("stress raw 1024")
+    line = "  the old way (one memset of 1 MB at full speed): %s ms, dropouts %d" % (r.get("ms"), dx)
+    print(line)
+    d.log.write(line + "\n")
+    for cmd in ("stress zero 4096", "stress copy 2048", "stress sample 2048"):
+        r, dx = run(cmd)
+        rep.check("%s (rate %d B/ms) while playing: no dropouts" % (cmd, rate0), r.get("ok") == 1 and dx == 0,
+                  "%s ms, dropouts %d" % (r.get("ms"), dx))
+    for cmd in ("stress sample 4096", "stress copy 4096"):
+        r, dx = run(cmd)
+        rep.check("%s (rate %d B/ms) while playing: no dropouts" % (cmd, rate0), r.get("ok") == 1 and dx == 0,
+                  "%s ms, dropouts %d" % (r.get("ms"), dx))
+    # the margin: a much higher rate cap, so only the wait for the audio load (hal::audioLoad) holds the work back
+    for rate in (65536, 1048576):
+        d.cmd("bulkrate %d" % rate)
+        r, dx = run("stress zero 4096")
+        line = "  rate cap %d B/ms: 4 MB zeroed in %s ms, dropouts %d" % (rate, r.get("ms"), dx)
+        print(line)
+        d.log.write(line + "\n")
+    d.cmd("bulkrate %d" % int(rate0))
+    d.tap(*PLAY)
+    time.sleep(0.4)
+    d.tap(320 + 0 * 29 + 12, 621)   # scene A again
+    time.sleep(0.5)
+
+
 TESTS = [("demo", t_demo), ("views", t_views), ("pads", t_pads), ("transport", t_transport), ("scenes", t_scenes),
          ("bass_keys", t_bass_keys), ("bass_full", t_bass_full), ("maximize", t_maximize), ("settings", t_settings),
-         ("help", t_help), ("browser_max", t_browser_max), ("keyboard", t_keyboard)]
+         ("help", t_help), ("browser_max", t_browser_max), ("keyboard", t_keyboard), ("bulk", t_bulk)]
 
 
 def main():
@@ -556,6 +736,7 @@ def main():
     ap.add_argument("--out", default=os.path.join("host", "device_shots"))
     ap.add_argument("--only", default="")
     ap.add_argument("--soak", type=int, default=0)
+    ap.add_argument("--profile", action="store_true", help="also t_profile (0.4.9: CPU per part, 1 vs 2 cores)")
     ap.add_argument("--reset", action="store_true", help="reset the Tab5 first (it starts in the launcher)")
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
@@ -574,6 +755,8 @@ def main():
         for name, fn in TESTS:
             if not only or name in only:
                 fn(d, rep, args.out)
+        if args.profile or "profile" in only:
+            t_profile(d, rep, args.out)
         if args.soak:
             t_soak(d, rep, args.out, args.soak)
         s = d.state()

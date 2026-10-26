@@ -50,6 +50,10 @@ CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE=2048
 # idle-task check of CPU1 would print watchdog dumps (interrupts masked) on top of the crackle; the audio
 # task subscribes to the task watchdog itself, so a hung audio loop is still reported.
 CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
+# Run-time stats (0.4.9): the test console's "load" reports the busy share of both cores and of the busiest tasks
+# (an esp_timer read per context switch)
+CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
+CONFIG_FREERTOS_RUN_TIME_COUNTER_TYPE_U64=y
 
 # LVGL 9.3 (all widgets stay enabled: Kconfig defaults)
 CONFIG_LV_CONF_SKIP=y

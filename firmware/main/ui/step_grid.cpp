@@ -4,7 +4,9 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "core/prof.h"
 #include "ui/app.h"
+#include "ui/ui.h"
 #include "ui/theme.h"
 #include "ui/widgets.h"
 
@@ -587,7 +589,11 @@ void onEvent(lv_event_t* e)
 {
     const lv_event_code_t code = lv_event_get_code(e);
     if (code == LV_EVENT_DRAW_MAIN) {
+        const uint32_t c0 = profCycles();
         draw(lv_event_get_layer(e));
+        DrawProf& p = drawProf();
+        p.cyc[DrawProf::kStepGrid] += profCycles() - c0;
+        ++p.calls[DrawProf::kStepGrid];
         return;
     }
     if (code == LV_EVENT_DELETE) {

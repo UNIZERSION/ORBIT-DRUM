@@ -39,6 +39,15 @@ const char* const kGlobalKeys[] = {
     "wide", "pump_amount", "pump_release", "space_amount", "metro_level",
     "bass_tune", "bass_cutoff", "bass_reso", "bass_envmod", "bass_decay", "bass_accent", "bass_drive",
     "bass_level", "bass_wave", "bass_send", "bass_bus", "bass_mute",
+    // SYNTH (0.4.9)
+    "syn_osc1_wave", "syn_osc1_color", "syn_osc1_level", "syn_osc2_wave", "syn_osc2_color", "syn_osc2_level",
+    "syn_osc2_coarse", "syn_osc2_fine", "syn_osc2_env", "syn_sync", "syn_ring", "syn_xmod", "syn_sub_oct",
+    "syn_sub_level", "syn_noise", "syn_tune", "syn_filter", "syn_cutoff", "syn_reso", "syn_key_follow",
+    "syn_env_amt", "syn_vel_cutoff", "syn_f_attack", "syn_f_decay", "syn_f_sustain", "syn_f_release",
+    "syn_a_attack", "syn_a_decay", "syn_a_sustain", "syn_a_release", "syn_vel_amp", "syn_lfo_wave",
+    "syn_lfo_rate", "syn_lfo_sync", "syn_lfo_fade", "syn_lfo_key", "syn_lfo_pitch", "syn_lfo_cutoff",
+    "syn_lfo_amp", "syn_lfo_pw", "syn_mode", "syn_legato", "syn_glide", "syn_detune", "syn_spread",
+    "syn_drive", "syn_level", "syn_send", "syn_bus", "syn_mute",
 };
 static_assert(sizeof(kGlobalKeys) / sizeof(kGlobalKeys[0]) == kGlobalParamCount, "one key per GlobalParam");
 
@@ -235,6 +244,26 @@ void writeScene(Writer& w, cJSON* o, const Scene& sc)
         if (b.note) w.i(so, "n", b.note);
         if (b.accent) w.i(so, "a", 1);
         if (b.slide) w.i(so, "s", 1);
+    }
+    // SYNTH (0.4.9): steps with notes: {"i": step, "n": [note, vel, len, note, vel, len, ...]}
+    cJSON* syo = w.obj(o, "synth");
+    cJSON* ssteps = w.arr(syo, "steps");
+    for (int i = 0; i < kMaxSteps; ++i) {
+        const SynthStep& st = sc.synth.step[i];
+        bool any = false;
+        for (const SynthNote& sn : st.n) any = any || sn.note != 0;
+        if (!any) continue;
+        cJSON* so = cJSON_CreateObject();
+        w.attach(ssteps, nullptr, so);
+        if (!so) continue;
+        w.i(so, "i", i);
+        cJSON* nn = w.arr(so, "n");
+        for (const SynthNote& sn : st.n) {
+            if (!sn.note) continue;
+            w.attach(nn, nullptr, cJSON_CreateNumber(sn.note));
+            w.attach(nn, nullptr, cJSON_CreateNumber(sn.vel));
+            w.attach(nn, nullptr, cJSON_CreateNumber(sn.len));
+        }
     }
 }
 
@@ -551,6 +580,35 @@ void readScene(const cJSON* o, Scene& sc)
             b.slide = (uint8_t)sl;
         }
     }
+    // SYNTH (0.4.9): files without "synth" have an empty line (not the demo's).
+    sc.synth = SynthLine{};
+    const cJSON* syn = item(o, "synth");
+    const cJSON* ssteps = cJSON_IsObject(syn) ? item(syn, "steps") : nullptr;
+    if (cJSON_IsArray(ssteps)) {
+        const cJSON* so = nullptr;
+        cJSON_ArrayForEach(so, ssteps)
+        {
+            double idx;
+            if (!cJSON_IsObject(so) || !getNum(so, "i", idx) || !(idx >= 0.0) || idx >= (double)kMaxSteps) continue;
+            SynthStep& st = sc.synth.step[(int)idx];
+            const cJSON* nn = item(so, "n");
+            if (!cJSON_IsArray(nn)) continue;
+            int slot = 0, k = 0;
+            double v[3] = {0.0, 0.0, 0.0};
+            const cJSON* x = nullptr;
+            cJSON_ArrayForEach(x, nn)
+            {
+                v[k++] = cJSON_IsNumber(x) ? x->valuedouble : -1.0;
+                if (k < 3) continue;
+                k = 0;
+                if (slot >= kSynthStepNotes || !(v[0] >= kSynthNoteMin && v[0] <= kSynthNoteMax)) continue;
+                SynthNote& sn = st.n[slot++];
+                sn.note = (uint8_t)(int)v[0];
+                sn.vel = (uint8_t)(v[1] >= 1.0 && v[1] <= 127.0 ? (int)v[1] : 100);
+                sn.len = (uint8_t)(v[2] >= 1.0 && v[2] <= (double)kMaxSteps ? (int)v[2] : 1);
+            }
+        }
+    }
     const cJSON* tracks = item(o, "tracks");
     if (!cJSON_IsArray(tracks)) return;
     for (int t = 0; t < kPads; ++t) {
@@ -615,6 +673,10 @@ bool applyJson(const cJSON* root, Project& p, SampleRef refs[kPads][kLayers], ch
     getI(root, "pump_src", p.pump_src, 0, kPads - 1);
 
     const cJSON* g = item(root, "globals");
+    // SYNTH knobs (0.4.9): a project saved before them (it has globals, but not these) gets the plain synth
+    // defaults, not the demo's patch that projectDefaults() set
+    if (cJSON_IsObject(g))
+        for (int k = GP_SYN_OSC1_WAVE; k <= GP_SYN_MUTE; ++k) p.g[k] = globalSpec((GlobalParam)k).def;
     if (cJSON_IsObject(g))
         for (int k = 0; k < kGlobalParamCount; ++k) {
             double v;

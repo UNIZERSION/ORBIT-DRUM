@@ -11,3 +11,4 @@ void lvhost_tap(int x, int y);                         // press 60 ms, release, 
 void lvhost_double_tap(int x, int y);
 void lvhost_drag(int x0, int y0, int x1, int y1, int ms);
 uint32_t lvhost_ms();                                  // virtual time
+const uint16_t* lvhost_fb();                           // the RGB565 frame (1280 x 720), as LVGL left it

@@ -10,6 +10,7 @@
 #include "core/dsp/fastmath.h"
 #include "core/params.h"
 #include "core/project.h"
+#include "core/synthmap.h"
 #include "core/sample.h"
 
 using namespace orbit;
@@ -160,6 +161,38 @@ int main()
     }
     CHECK(p.song.slot[0] == 0 && p.song.slot[2] == 1 && p.song.slot[9] == 1 && p.song.slot[10] == -1 && !p.song.follow);
     CHECK(p.g[GP_BASS_DRIVE] > 0.5f && p.g[GP_BASS_RESO] > 0.7f);
+    // 0.4.9: SYNTH chord stabs only in the full part D (G minor triads), the PLUCK patch, bus 7 named SYNTH
+    {
+        int chords[kScenes] = {};
+        for (int s = 0; s < kScenes; ++s)
+            for (int st = 0; st < kMaxSteps; ++st) {
+                int n = 0;
+                for (const SynthNote& sn : p.scene_data[s].synth.step[st].n) {
+                    if (!sn.note) continue;
+                    ++n;
+                    CHECK(sn.note >= kSynthNoteMin && sn.note <= kSynthNoteMax && sn.vel >= 1 && sn.len >= 1);
+                    static const int kMinor[] = {0, 2, 3, 5, 7, 8, 10};
+                    bool in = false;
+                    for (int d : kMinor) in = in || (((sn.note - 7) % 12 + 12) % 12) == d;
+                    CHECK(in);
+                }
+                if (n) ++chords[s];
+                CHECK(n == 0 || n == 3);
+            }
+        CHECK(chords[0] == 0 && chords[1] == 0 && chords[2] == 0 && chords[3] == 8);
+        CHECK(p.g[GP_SYN_CUTOFF] != globalSpec(GP_SYN_CUTOFF).def || p.g[GP_SYN_A_DECAY] != globalSpec(GP_SYN_A_DECAY).def);
+        CHECK(p.g[GP_SYN_LEVEL] == -9.0f && (int)p.g[GP_SYN_BUS] == 6 && std::strcmp(p.bus[6].name, "SYNTH") == 0);
+        SynthParams sp;
+        synthFromGlobals(p.g, sp);
+        CHECK(sp.level > 0.3f && sp.level < 0.4f && sp.cutoff > 0.0f && sp.cutoff < 1.0f);
+        // the knobs round-trip through SynthParams (presets)
+        static Project q;
+        projectEmpty(q);
+        synthToGlobals(sp, q.g);
+        for (int k = GP_SYN_OSC1_WAVE; k <= GP_SYN_LEVEL; ++k)
+            CHECK(std::fabs(q.g[k] - p.g[k]) <= 0.002f * (1.0f + std::fabs(p.g[k])));
+        CHECK(synthPresetCount() == 8 && std::strcmp(synthPresetName(2), "PLUCK") == 0 && synthPresetName(99)[0] == 0);
+    }
     static Project e;
     projectEmpty(e);   // NEW PROJECT: nothing of the demo
     CHECK(e.bpm == 120.f && e.scene_data[0].length == 16 && e.song.slot[0] == -1);

@@ -108,6 +108,7 @@ uint32_t s_render_max_us = 0;
 uint32_t s_write_max_us = 0;
 uint32_t s_period_max_us = 0;
 uint32_t s_overload_blocks = 0;
+uint32_t s_load_pm = 0;   // __atomic: audioLoad() x 1000
 
 DRAM_ATTR int16_t s_buf[kMaxFrames * 2] __attribute__((aligned(64)));
 
@@ -398,6 +399,11 @@ void audioTask(void*)
         }
         const uint32_t render_us = (uint32_t)(t1 - t0);
         noteMax(&s_render_max_us, render_us);
+        {   // audioLoad(): up at once, down over ~8 blocks
+            const uint32_t pm = period_us ? (uint32_t)((uint64_t)render_us * 1000u / period_us) : 0u;
+            const uint32_t cur = __atomic_load_n(&s_load_pm, __ATOMIC_RELAXED);
+            __atomic_store_n(&s_load_pm, pm >= cur ? pm : cur - (cur - pm) / 8u, __ATOMIC_RELAXED);
+        }
         noteMax(&s_write_max_us, t2 - t1);
         portENTER_CRITICAL(&s_hook_mux);
         AudioTimingHook hook = s_timing;
@@ -546,6 +552,7 @@ bool audioStart(uint32_t sample_rate, int block_frames, RenderFn render, void* u
         return false;
     }
     s_running = true;
+    __atomic_store_n(&s_load_pm, 0u, __ATOMIC_RELAXED);   // audioLoad() of the new stream
     s_spk_state = -1;
     applyOutputLocked();
     detail::btAudioResume(s_rate, frames);
@@ -577,6 +584,8 @@ void audioStop()
 }
 
 bool audioRunning() { return s_running; }
+
+float audioLoad() { return s_running ? (float)__atomic_load_n(&s_load_pm, __ATOMIC_RELAXED) * 0.001f : 0.0f; }
 
 void audioSetVolume(int percent)
 {

@@ -209,7 +209,7 @@ static const uint8_t kLogoOrbitDawMap[{w * h}] = {{
 }};
 
 static const lv_image_dsc_t kLogoOrbitDaw = {{
-    .header = {{.magic = LV_IMAGE_HEADER_MAGIC, .cf = LV_COLOR_FORMAT_A8, .flags = 0, .w = {w}, .h = {h}, .stride = {w}}},
+    .header = {{.magic = LV_IMAGE_HEADER_MAGIC, .cf = LV_COLOR_FORMAT_A8, .flags = 0, .w = {w}, .h = {h}, .stride = {w}, .reserved_2 = 0}},
     .data_size = sizeof kLogoOrbitDawMap,
     .data = kLogoOrbitDawMap,
     .reserved = nullptr,

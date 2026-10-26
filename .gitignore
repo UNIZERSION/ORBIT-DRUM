@@ -41,3 +41,4 @@ docs/TAB5_SPRZET_NOTATKI.md
 .vscode/
 
 tools/ref_capture.py
+host/device_shots_*.txt

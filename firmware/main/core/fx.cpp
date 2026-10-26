@@ -3,6 +3,7 @@
 #include <math.h>
 #include "dsp/env.h"
 #include "platform.h"
+#include "prof.h"
 
 namespace orbit {
 
@@ -58,6 +59,71 @@ ORBIT_HOT void StereoDelay::setParams(float delay_samples, float feedback, float
 
 ORBIT_HOT void StereoDelay::process(const float* in_l, const float* in_r, float* out_l, float* out_r, int n)
 {
+    block_used_ = bl_ && br_ && !ref_ && cur_ >= n && next_ >= n;
+    if (!block_used_) {
+        processRef(in_l, in_r, out_l, out_r, n);
+        return;
+    }
+    // 1) the read heads (and the crossfade) of the whole block: every position read is >= n samples old, so none
+    //    of them is written in this block
+    {
+        int32_t w = w_;
+        for (int i = 0; i < n; ++i) {
+            int32_t ia = w - cur_;
+            if (ia < 0) ia += len_;
+            float yl = bl_[ia], yr = br_[ia];
+            if (xfading_) {
+                int32_t ib = w - next_;
+                if (ib < 0) ib += len_;
+                xf_ += xf_step_;
+                if (xf_ >= 1.0f) {
+                    xf_ = 1.0f;
+                    xfading_ = false;
+                    cur_ = next_;
+                }
+                yl += xf_ * (bl_[ib] - yl);
+                yr += xf_ * (br_[ib] - yr);
+            }
+            out_l[i] = yl;
+            out_r[i] = yr;
+            if (++w >= len_) w = 0;
+        }
+    }
+    // 2) feedback: tone lowpass, DC blocker, soft clip; the writes
+    const float fb = fb_, ta = tone_a_, da = dc_a_;
+    float lpl = lpl_, lpr = lpr_, dcl = dcl_, dcr = dcr_;
+    float* const bl = bl_;
+    float* const br = br_;
+    const int32_t len = len_;
+    int32_t w = w_;
+    for (int i = 0; i < n; ++i) {
+        const float yl = out_l[i], yr = out_r[i];
+        lpl += ta * (yl - lpl);
+        lpr += ta * (yr - lpr);
+        dcl += da * (lpl - dcl);
+        dcr += da * (lpr - dcr);
+        const float fl = (lpl - dcl) * fb, fr = (lpr - dcr) * fb;
+        float wl, wr;
+        if (pp_) {
+            wl = 0.5f * (in_l[i] + in_r[i]) + fr;
+            wr = fl;
+        } else {
+            wl = in_l[i] + fl;
+            wr = in_r[i] + fr;
+        }
+        bl[w] = softClip(wl);
+        br[w] = softClip(wr);
+        if (++w >= len) w = 0;
+    }
+    w_ = w;
+    lpl_ = flushDenormal(lpl);
+    lpr_ = flushDenormal(lpr);
+    dcl_ = flushDenormal(dcl);
+    dcr_ = flushDenormal(dcr);
+}
+
+ORBIT_HOT void StereoDelay::processRef(const float* in_l, const float* in_r, float* out_l, float* out_r, int n)
+{
     if (!bl_ || !br_) {
         for (int i = 0; i < n; ++i) out_l[i] = out_r[i] = 0.0f;
         return;
@@ -110,29 +176,46 @@ ORBIT_HOT void StereoDelay::process(const float* in_l, const float* in_r, float*
 
 // ---------------------------------------------------------------- FxBus
 
+namespace {
+float* s_resv_lines = nullptr;   // FxBus::reserveLines: internal RAM, never freed
+int32_t s_resv_floats = 0;
+const void* s_resv_owner = nullptr;   // the FxBus using it (one at a time; any other one takes PSRAM)
+}  // namespace
+
+bool FxBus::reserveLines(int max_rate)
+{
+    if (s_resv_lines) return true;
+    const int32_t n = PlateReverb::lineFloats(max_rate);
+    float* p = static_cast<float*>(fastAlloc((size_t)n * sizeof(float)));
+    if (p && !memIsInternal(p)) {   // fastAlloc fell back to PSRAM: no gain, init() takes PSRAM itself
+        fastFree(p);
+        p = nullptr;
+    }
+    s_resv_lines = p;
+    s_resv_floats = p ? n : 0;
+    return p != nullptr;
+}
+
+bool FxBus::linesReserved() { return s_resv_lines != nullptr; }
+
 bool FxBus::init(int rate)
 {
     release();
     rate_ = rate;
-    // Reverb lines (~180 KB @48 kHz) go to PSRAM: every line is read and written at moving
-    // pointers (taps at fixed offsets), so a cache line serves 16 frames. Internal RAM is the
-    // fallback only.
-    const int32_t rv = PlateReverb::memoryFloats(rate);
-    rev_fast_ = false;
-    rev_mem_ = static_cast<float*>(bigAlloc((size_t)rv * sizeof(float)));
-    if (!rev_mem_) {
-        rev_mem_ = static_cast<float*>(fastAlloc((size_t)rv * sizeof(float)));
-        rev_fast_ = rev_mem_ != nullptr;
-    }
+    const int32_t lf = PlateReverb::lineFloats(rate), pf = PlateReverb::predelayFloats(rate);
+    lines_resv_ = s_resv_lines && s_resv_floats >= lf && !s_resv_owner;
+    if (lines_resv_) s_resv_owner = this;
+    rev_lines_ = lines_resv_ ? s_resv_lines : static_cast<float*>(bigAlloc((size_t)lf * sizeof(float)));
+    rev_pre_ = static_cast<float*>(bigAlloc((size_t)pf * sizeof(float)));
     const int32_t df = StereoDelay::framesFor(rate);
     dly_l_ = static_cast<float*>(bigAlloc((size_t)df * sizeof(float)));
     dly_r_ = static_cast<float*>(bigAlloc((size_t)df * sizeof(float)));
-    if (!rev_mem_ || !dly_l_ || !dly_r_) {
+    if (!rev_lines_ || !rev_pre_ || !dly_l_ || !dly_r_) {
         release();
         return false;
     }
-    mem_bytes_ = (size_t)rv * sizeof(float) + 2 * (size_t)df * sizeof(float);
-    reverb_.init(rev_mem_, rate);
+    mem_bytes_ = (size_t)(lf + pf) * sizeof(float) + 2 * (size_t)df * sizeof(float);
+    reverb_.init(rev_lines_, rev_pre_, rate);
     delay_.init(dly_l_, dly_r_, df, rate);
     dly_level_.reset(0.0f);
     rev_level_.reset(0.0f);
@@ -144,13 +227,13 @@ bool FxBus::init(int rate)
 
 void FxBus::release()
 {
-    if (rev_mem_) {
-        if (rev_fast_) fastFree(rev_mem_);
-        else bigFree(rev_mem_);
-    }
+    if (rev_lines_ && !lines_resv_) bigFree(rev_lines_);   // the reserved block stays for the next init
+    if (lines_resv_ && s_resv_owner == this) s_resv_owner = nullptr;
+    if (rev_pre_) bigFree(rev_pre_);
     if (dly_l_) bigFree(dly_l_);
     if (dly_r_) bigFree(dly_r_);
-    rev_mem_ = dly_l_ = dly_r_ = nullptr;
+    rev_lines_ = rev_pre_ = dly_l_ = dly_r_ = nullptr;
+    lines_resv_ = false;
     mem_bytes_ = 0;
 }
 
@@ -188,14 +271,18 @@ ORBIT_HOT void FxBus::process(const float* send_l, const float* send_r, const fl
         const float tail_s = maxf(p.rev_decay * 1.4f + p.rev_predelay_ms * 0.001f + 0.5f, echo_s_);
         if ((float)silent_ > tail_s * (float)rate_) idle_ = true;
     }
-    if (idle_ || !ready()) {
+    if (idle_ || !ready() || p.bypass) {
         for (int i = 0; i < n; ++i) out_l[i] = out_r[i] = 0.0f;
         dly_level_.reset(p.dly_level);
         rev_level_.reset(p.rev_level);
+        cyc_dly_ = cyc_rev_ = 0;
         return;
     }
+    delay_.setReference(p.reference);
+    const uint32_t c0 = profCycles();
     delay_.setParams(p.delay_samples, p.dly_feedback, p.dly_tone, p.dly_pingpong);
     delay_.process(send_l, send_r, dl_, dr_, n);
+    const uint32_t c1 = profCycles();
     dly_level_.begin(p.dly_level, n);
     for (int i = 0; i < n; ++i) {
         const float g = dly_level_.next();
@@ -204,8 +291,12 @@ ORBIT_HOT void FxBus::process(const float* send_l, const float* send_r, const fl
         rin_[i] = 0.5f * (send_l[i] + send_r[i] + dl_[i] + dr_[i]) + space[i];
     }
     dly_level_.end();
+    const uint32_t c2 = profCycles();
     reverb_.setParams(p.rev_size, p.rev_decay, p.rev_damp, p.rev_predelay_ms);
     reverb_.process(rin_, rl_, rr_, n);
+    const uint32_t c3 = profCycles();
+    cyc_dly_ = c1 - c0;
+    cyc_rev_ = c3 - c2;
     rev_level_.begin(p.rev_level, n);
     for (int i = 0; i < n; ++i) {
         const float g = rev_level_.next();

@@ -255,6 +255,80 @@ static void testIdenticalTimelines()
     delete p;
 }
 
+// SYNTH (0.4.9): the notes of a step (a chord) start on the grid with the swing, each with a gate of its length in steps
+// minus 1/16 step; the order inside a step is the slot order; GP_SYN_MUTE stops the line; any block size.
+static void testSynthLine()
+{
+    Project* p = newProject();
+    for (int s = 0; s < kScenes; ++s) p->scene_data[s].synth = SynthLine{};
+    Scene& sc = p->scene_data[0];
+    sc.swing = 62;   // odd steps 1440 frames late (testSwing)
+    auto put = [&](int step, int slot, int note, int vel, int len) {
+        SynthNote& n = sc.synth.step[step].n[slot];
+        n.note = (uint8_t)note;
+        n.vel = (uint8_t)vel;
+        n.len = (uint8_t)len;
+    };
+    put(0, 0, 60, 100, 1);
+    put(0, 1, 64, 90, 1);
+    put(0, 2, 67, 80, 1);
+    put(3, 0, 72, 110, 4);
+    put(15, 0, 48, 70, 2);   // rings past the bar end
+    struct Got {
+        uint64_t frame;
+        int note, vel;
+        uint32_t gate;
+    };
+    for (int bs : {1, 97, 256}) {
+        Sequencer seq;
+        seq.init(kRate, p);
+        seq.play();
+        std::vector<Got> got;
+        uint64_t now = 0;
+        while (now < kBar) {
+            const int n = (int)(kBar - now < (uint64_t)bs ? kBar - now : (uint64_t)bs);
+            SeqTrigger t[256];
+            SeqNotice no;
+            seq.process(n, t, 256, no);
+            for (int i = 0; i < no.synth_count; ++i) {
+                CHECK(no.synth[i].offset < (uint32_t)n);
+                if (i) CHECK(no.synth[i].offset >= no.synth[i - 1].offset);
+                got.push_back(Got{now + no.synth[i].offset, no.synth[i].note, no.synth[i].vel, no.synth[i].gate_frames});
+            }
+            now += (uint64_t)n;
+        }
+        CHECK_EQ(got.size(), 5);
+        if (got.size() != 5) continue;
+        const uint32_t g1 = (uint32_t)(kStep - kStep / 16);
+        CHECK_EQ(got[0].frame, 0);
+        CHECK_EQ(got[0].note, 60);
+        CHECK_EQ(got[1].note, 64);
+        CHECK_EQ(got[2].note, 67);
+        CHECK_EQ(got[2].vel, 80);
+        CHECK_EQ(got[0].gate, g1);
+        CHECK_EQ(got[3].frame, 3 * kStep + 1440);
+        CHECK_EQ(got[3].note, 72);
+        CHECK_EQ(got[3].gate, (uint32_t)(4 * kStep - kStep / 16));
+        CHECK_EQ(got[4].frame, 15 * kStep + 1440);
+        CHECK_EQ(got[4].gate, (uint32_t)(2 * kStep - kStep / 16));
+    }
+    p->g[GP_SYN_MUTE] = 1.0f;
+    {
+        Sequencer seq;
+        seq.init(kRate, p);
+        seq.play();
+        int count = 0;
+        for (uint64_t now = 0; now < kBar; now += 128) {
+            SeqTrigger t[256];
+            SeqNotice no;
+            seq.process(128, t, 256, no);
+            count += no.synth_count;
+        }
+        CHECK_EQ(count, 0);
+    }
+    delete p;
+}
+
 static void testSwing()
 {
     const int sw[] = {54, 62, 75};
@@ -1012,6 +1086,7 @@ int main()
     testTransport();
     testMetronome();
     testOutputLimit();
+    testSynthLine();
     if (fails) {
         std::printf("test_seq: %d checks FAILED\n", fails);
         return 1;

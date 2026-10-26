@@ -87,6 +87,58 @@ enum GlobalParam : uint8_t {
     GP_BASS_SEND,     // 0..1 FX send (reverb + delay bus)
     GP_BASS_BUS,      // enum mixer bus 1..8 (default 8)
     GP_BASS_MUTE,     // enum OFF / ON
+    // SYNTH (0.4.9): the knobs of the 4-voice synth (core/synth.h), one patch per project; times in ms, the cutoff
+    // in Hz. core/synthmap.cpp turns them into SynthParams once per block. Appended: older files keep defaults.
+    GP_SYN_OSC1_WAVE,   // enum SAW / SQUARE / TRI
+    GP_SYN_OSC1_COLOR,  // 0..1 (core/synth.h: COLOR per wave)
+    GP_SYN_OSC1_LEVEL,  // 0..1
+    GP_SYN_OSC2_WAVE,   // enum
+    GP_SYN_OSC2_COLOR,  // 0..1
+    GP_SYN_OSC2_LEVEL,  // 0..1
+    GP_SYN_OSC2_COARSE, // semitones -24..+24 (integer)
+    GP_SYN_OSC2_FINE,   // cents -50..+50
+    GP_SYN_OSC2_ENV,    // -1..1: filter envelope -> OSC2 pitch (+-24 semitones)
+    GP_SYN_SYNC,        // enum OFF / ON: OSC2 hard-synced to OSC1
+    GP_SYN_RING,        // enum OFF / ON: OSC1 x OSC2 replaces OSC2
+    GP_SYN_XMOD,        // 0..1 OSC2 -> OSC1 frequency
+    GP_SYN_SUB_OCT,     // enum -1 OCT / -2 OCT
+    GP_SYN_SUB_LEVEL,   // 0..1
+    GP_SYN_NOISE,       // 0..1
+    GP_SYN_TUNE,        // semitones -24..+24
+    GP_SYN_FILTER,      // enum LPF 24 / LPF 12 / HPF 12
+    GP_SYN_CUTOFF,      // Hz 20..20480 (exp)
+    GP_SYN_RESO,        // 0..1
+    GP_SYN_KEY_FOLLOW,  // 0..1
+    GP_SYN_ENV_AMT,     // -1..1 filter envelope depth (+-8 octaves)
+    GP_SYN_VEL_CUTOFF,  // 0..1 velocity -> cutoff
+    GP_SYN_F_ATTACK,    // ms, filter envelope
+    GP_SYN_F_DECAY,     // ms
+    GP_SYN_F_SUSTAIN,   // 0..1
+    GP_SYN_F_RELEASE,   // ms
+    GP_SYN_A_ATTACK,    // ms, amp envelope
+    GP_SYN_A_DECAY,     // ms
+    GP_SYN_A_SUSTAIN,   // 0..1
+    GP_SYN_A_RELEASE,   // ms
+    GP_SYN_VEL_AMP,     // 0..1 velocity -> level
+    GP_SYN_LFO_WAVE,    // enum TRI / SAW UP / SAW DN / SQUARE / S&H / RANDOM
+    GP_SYN_LFO_RATE,    // Hz 0.05..30 (exp), used while LFO SYNC is FREE
+    GP_SYN_LFO_SYNC,    // enum FREE, 4 BARS .. 1/32 (the synth tempo divisions)
+    GP_SYN_LFO_FADE,    // ms 0..20000 depth fade-in after a note start
+    GP_SYN_LFO_KEY,     // enum OFF / ON: each note restarts its voice LFO
+    GP_SYN_LFO_PITCH,   // 0..1 depths
+    GP_SYN_LFO_CUTOFF,
+    GP_SYN_LFO_AMP,
+    GP_SYN_LFO_PW,
+    GP_SYN_MODE,        // enum POLY / MONO / UNISON
+    GP_SYN_LEGATO,      // enum OFF / ON (MONO / UNISON)
+    GP_SYN_GLIDE,       // ms 0..5000
+    GP_SYN_DETUNE,      // 0..1 unison detune
+    GP_SYN_SPREAD,      // 0..1 stereo spread
+    GP_SYN_DRIVE,       // 0..1
+    GP_SYN_LEVEL,       // dB -60..+6
+    GP_SYN_SEND,        // 0..1 FX send (reverb + delay bus)
+    GP_SYN_BUS,         // enum mixer bus 1..8 (default 7, named SYNTH in new projects)
+    GP_SYN_MUTE,        // enum OFF / ON: the scene lines stay silent (live notes still play)
     kGlobalParamCount
 };
 

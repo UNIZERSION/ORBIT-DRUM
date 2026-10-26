@@ -80,7 +80,7 @@ const char* builtinKitName(const Sample* s)
     for (int k = 0; k < builtinKitCount(); ++k) {
         const BuiltinKit& kit = builtinKit(k);
         for (int i = 0; kit.sounds && i < kit.count; ++i)
-            if (kit.sounds[i].pcm == s->data) return kit.name;
+            if (builtinPcmIfUnpacked(k, i) == s->data) return kit.name;
     }
     return nullptr;
 }

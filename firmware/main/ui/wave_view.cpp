@@ -16,8 +16,10 @@
 #include <new>
 
 #include "core/platform.h"
+#include "core/prof.h"
 #include "ui/theme.h"
 #include "ui/widgets.h"
+#include "ui/ui.h"
 
 namespace orbit::ui::wave {
 
@@ -210,7 +212,10 @@ void renderCache(Wave* w, int W, int H)
         const uint16_t bg565 = to565(bg), grid565 = to565(grid);
         const uint16_t bgc565 = to565(mix(bg, acc, 0.12f)), gridc565 = to565(mix(grid, acc, 0.12f));
         uint16_t* plain = w->px;   // row 0 is a grid row; build the plain-row template in row 1
+        BulkPacer pace;   // 0.4.9: a big PSRAM image: rate-paced while the audio plays (LVGL task: no load waits)
+        pace.rate_only = true;
         for (int y = 0; y < H; ++y) {
+            if ((y & 15) == 15) bulkPace(pace, (size_t)W * 32u);
             uint16_t* row = w->px + (size_t)y * (size_t)W;
             const bool hl = y < Hc && hline[y];
             if (y == mid_row) {
@@ -727,7 +732,14 @@ void waveEventCb(lv_event_t* e)
 {
     Wave* w = (Wave*)lv_event_get_user_data(e);
     switch (lv_event_get_code(e)) {
-    case LV_EVENT_DRAW_MAIN: drawMain(w, e); break;
+    case LV_EVENT_DRAW_MAIN: {
+        const uint32_t c0 = profCycles();
+        drawMain(w, e);
+        DrawProf& p = drawProf();
+        p.cyc[DrawProf::kWave] += profCycles() - c0;
+        ++p.calls[DrawProf::kWave];
+        break;
+    }
     case LV_EVENT_PRESSED: onPressed(w); break;
     case LV_EVENT_PRESSING: onPressing(w); break;
     case LV_EVENT_RELEASED: onReleased(w, false); break;

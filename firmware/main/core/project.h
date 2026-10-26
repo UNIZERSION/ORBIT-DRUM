@@ -94,6 +94,24 @@ struct BassLine {
     BassStep step[kMaxSteps];
 };
 
+// SYNTH (0.4.9): a polyphonic note line per scene on the scene step grid (length, division, swing): up to
+// kSynthStepNotes notes start on a step, each with its velocity and its length in steps (a note may ring past
+// the scene end). The sound is the project SYNTH knobs (GP_SYN_*, core/synthmap.h).
+constexpr int kSynthStepNotes = 4;
+constexpr int kSynthNoteMin = 12, kSynthNoteMax = 120;   // MIDI notes C0..C9
+struct SynthNote {
+    uint8_t note = 0;           // MIDI note kSynthNoteMin..kSynthNoteMax; 0 = empty slot
+    uint8_t vel = 100;          // 1..127
+    uint8_t len = 1;            // steps 1..kMaxSteps
+    uint8_t _pad = 0;
+};
+struct SynthStep {
+    SynthNote n[kSynthStepNotes];
+};
+struct SynthLine {
+    SynthStep step[kMaxSteps];
+};
+
 struct Scene {
     Track track[kPads];
     uint8_t length = 16;        // steps 1..64 (LENGTH: 1 Bar = 16, 2 Bars = 32, 4 Bars = 64)
@@ -101,6 +119,7 @@ struct Scene {
     uint8_t swing = 50;         // 50 (straight) .. 75 (%), delays every second step
     uint8_t _pad = 0;
     BassLine bass;              // appended (0.3)
+    SynthLine synth;            // appended (0.4.9)
 };
 
 // Song arranger shown in the SCENES timeline: each slot plays one full pass of a scene.

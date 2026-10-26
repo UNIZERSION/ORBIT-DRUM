@@ -5,6 +5,25 @@
 //   state                      -> T>state key=value ...  (view, maximized panel, dialogs, transport, BASS KEYS,
 //                                 heap, audio xruns, touch rate, headphones, SD, Bluetooth and the Pico's buffer)
 //   audio                      -> T>audio ...            (engine telemetry: peaks, voices, CPU, bass notes, step)
+//   prof                       -> T>prof ...             (0.4.9: audio-core cycles per block of each part, the SYNTH
+//                                 job on the helper core, the wait for it, the FX bus)
+//   cores [1|2]                -> T>cores dual=...       (0.4.9: SYNTH inline (1) or on the second core (2))
+//   load                       -> T>load ...             (0.4.9: busy % of both cores and of the busiest tasks since
+//                                 the last "load", free stack of the audio and helper tasks)
+//   fxalgo [0|1]               -> T>fxalgo block=...     (0.4.9: stereo delay reference code (0) or block-wise (1))
+//   fxcheck                    -> T>fxcheck ...          (0.4.9: block-wise delay == reference, bit for bit, here)
+//   membench                   -> T>membench ...         (0.4.9: cycles per access of PSRAM / internal RAM / RTC RAM /
+//                                 TCM in delay-line streams on the audio core, free memory per kind)
+//   quiet [ms]                 -> T>quiet ...            (0.4.9: the UI paused for ms (1200; LVGL lock held): the
+//                                 engine profile and membench of that time, to see what the UI costs the audio core)
+//   stress raw|zero|copy|sample KB -> T>stress ...       (0.4.9: big PSRAM work as the app does it: raw = an unpaced
+//                                 memset (the old bigAlloc), zero = bigAlloc, copy = bulkCopy, sample = a sample made
+//                                 and edited (sampleCreate + opGain + analysis))
+//   bulkrate [bytes_per_ms]    -> T>bulkrate ...         (0.4.9: the bulk pacing rate, 0 = off)
+//   memlayout [0|1]            -> T>memlayout ...        (0.4.9: the memory layout; with a value: restart with it)
+//   uistat                     -> T>uistat ...           (0.4.9: since the last uistat: LVGL refreshes per second,
+//                                 their render and PPA-wait ms per second, areas and kpx per second, and the ms per
+//                                 second of each part of the UI tick)
 //   touch x y [x y ...]        -> fingers down (landscape px, up to 5), held until "release"
 //   release                    -> all fingers up
 //   tap x y [ms]               -> one finger for ms (80), then up
@@ -19,6 +38,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "core/fxcheck.h"
+#include "core/sample.h"
+#include "core/sampleio.h"
+#include "core/platform.h"
 #include "hal/hal.h"
 #include "ui/theme.h"
 #include "ui/ui.h"
@@ -29,7 +52,9 @@
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
+#include "esp_cpu.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include "hal/usb_serial_jtag_ll.h"
 #endif
 
@@ -141,10 +166,325 @@ void cmdState()
 void cmdAudio()
 {
     const Telemetry& t = app().engine().telemetry();
-    out("T>audio peak_l=%.4f peak_r=%.4f voices=%d cpu=%.3f xruns=%lu bass_notes=%lu playing=%d step=%d beat=%.3f",
+    out("T>audio peak_l=%.4f peak_r=%.4f voices=%d cpu=%.3f xruns=%lu bass_notes=%lu playing=%d step=%d beat=%.3f "
+        "synth_notes=%lu synth_voices=%d",
            (double)t.master_peak[0].load(), (double)t.master_peak[1].load(), (int)t.voices.load(), (double)t.cpu.load(),
            (unsigned long)t.xruns.load(), (unsigned long)t.bass_notes.load(), (int)t.playing.load(),
-           (int)t.step.load(), (double)t.beat.load());
+           (int)t.step.load(), (double)t.beat.load(), (unsigned long)t.synth_notes.load(), (int)t.synth_voices.load());
+}
+
+// 0.4.9: where the audio block's CPU time goes (Telemetry::prof, cycles per block, last 256 blocks)
+void cmdProf()
+{
+    const Telemetry& t = app().engine().telemetry();
+    out("T>prof block=%lu voices_x100=%lu pre=%lu pads=%lu bass=%lu synth=%lu preview=%lu master=%lu post=%lu "
+        "job=%lu wait=%lu fx=%lu dly=%lu rev=%lu fxref=%d dual=%d stalls=%lu helper_free=%d",
+        (unsigned long)t.prof_block.load(), (unsigned long)t.prof_voices_x100.load(),
+        (unsigned long)t.prof[Telemetry::kProfPre].load(), (unsigned long)t.prof[Telemetry::kProfVoices].load(),
+        (unsigned long)t.prof[Telemetry::kProfBass].load(), (unsigned long)t.prof[Telemetry::kProfSynth].load(),
+        (unsigned long)t.prof[Telemetry::kProfPreview].load(), (unsigned long)t.prof[Telemetry::kProfMaster].load(),
+        (unsigned long)t.prof[Telemetry::kProfPost].load(), (unsigned long)t.prof_job.load(),
+        (unsigned long)t.prof_wait.load(), (unsigned long)t.prof_fx.load(), (unsigned long)t.prof_dly.load(),
+        (unsigned long)t.prof_rev.load(), app().engine().fxReference() ? 1 : 0, (int)t.dual.load(),
+        (unsigned long)t.helper_stalls.load(), helperStackFree());
+}
+
+void cmdFxAlgo(const char* arg)
+{
+    int v[1] = {};
+    if (ints(arg, v, 1) == 1) app().engine().setFxReference(v[0] == 0);
+    out("T>fxalgo block=%d", app().engine().fxReference() ? 0 : 1);
+}
+
+void cmdFxCheck()
+{
+    const int rate = app().engine().sampleRate();
+    const uint64_t t0 = nowUs();
+    const FxCheck c = fxSelfCheck(rate > 0 ? rate : 48000, 1500);
+    out("T>fxcheck ran=%d rate=%d blocks=%lld samples=%lld delay_diff=%lld delay_block=%lld delay_rms=%.4f ms=%lu",
+        c.ran ? 1 : 0, rate, (long long)c.blocks, (long long)c.samples, (long long)c.delay_diff,
+        (long long)c.delay_block, c.delay_rms, (unsigned long)((nowUs() - t0) / 1000));
+}
+
+void cmdCores(const char* arg)
+{
+    int v[1] = {};
+    if (ints(arg, v, 1) == 1) app().engine().setDualCore(v[0] >= 2);
+    sleepMs(20);   // a few blocks: Telemetry::dual follows
+    out("T>cores dual=%d set=%d", (int)app().engine().telemetry().dual.load(), app().engine().dualCore() ? 1 : 0);
+}
+
+#if defined(ESP_PLATFORM) && (configGENERATE_RUN_TIME_STATS == 1)
+// Busy % of each core (from its idle task's run time) and of the busiest tasks, since the last call (the first
+// call: since boot). Run-time counters are esp_timer microseconds.
+void cmdLoad()
+{
+    constexpr int kMax = 40;
+    struct Prev {
+        TaskHandle_t h;
+        configRUN_TIME_COUNTER_TYPE rt;
+    };
+    static TaskStatus_t* st = nullptr;
+    static Prev* prev = nullptr;
+    static int nprev = 0;
+    static uint64_t prev_t = 0, prev_idle[2] = {};
+    if (!st) st = static_cast<TaskStatus_t*>(heap_caps_malloc(sizeof(TaskStatus_t) * kMax, MALLOC_CAP_SPIRAM));
+    if (!prev) prev = static_cast<Prev*>(heap_caps_calloc(kMax, sizeof(Prev), MALLOC_CAP_SPIRAM));
+    if (!st || !prev) {
+        out("T>err no memory");
+        return;
+    }
+    configRUN_TIME_COUNTER_TYPE total = 0;
+    const int n = (int)uxTaskGetSystemState(st, kMax, &total);
+    const uint64_t now = (uint64_t)esp_timer_get_time();
+    const uint64_t idle0 = ulTaskGetIdleRunTimeCounterForCore(0), idle1 = ulTaskGetIdleRunTimeCounterForCore(1);
+    const double dt = (double)(now - prev_t);
+    const double busy0 = 100.0 * (1.0 - (double)(idle0 - prev_idle[0]) / dt);
+    const double busy1 = 100.0 * (1.0 - (double)(idle1 - prev_idle[1]) / dt);
+    // per-task deltas, the 8 largest
+    struct Row {
+        const char* name;
+        double pct;
+    } rows[kMax];
+    int nr = 0;
+    for (int i = 0; i < n; ++i) {
+        configRUN_TIME_COUNTER_TYPE before = 0;
+        for (int j = 0; j < nprev; ++j)
+            if (prev[j].h == st[i].xHandle) before = prev[j].rt;
+        const double d = (double)(st[i].ulRunTimeCounter - before);
+        rows[nr++] = Row{st[i].pcTaskName, 100.0 * d / dt};
+    }
+    for (int i = 0; i < nr; ++i)
+        for (int j = i + 1; j < nr; ++j)
+            if (rows[j].pct > rows[i].pct) {
+                const Row t = rows[i];
+                rows[i] = rows[j];
+                rows[j] = t;
+            }
+    int audio_free = -1, dsp_free = -1;
+    for (int i = 0; i < n; ++i) {
+        if (!strcmp(st[i].pcTaskName, "orbit_audio")) audio_free = (int)st[i].usStackHighWaterMark;
+        if (!strcmp(st[i].pcTaskName, "orbit_dsp")) dsp_free = (int)st[i].usStackHighWaterMark;
+    }
+    char list[400];
+    int k = 0;
+    list[0] = 0;
+    for (int i = 0; i < nr && i < 8 && k < (int)sizeof list - 32; ++i)
+        k += snprintf(list + k, sizeof list - (size_t)k, "%s%s:%.1f", i ? "," : "", rows[i].name, rows[i].pct);
+    for (int i = 0; i < n; ++i) prev[i] = Prev{st[i].xHandle, st[i].ulRunTimeCounter};
+    nprev = n;
+    prev_t = now;
+    prev_idle[0] = idle0;
+    prev_idle[1] = idle1;
+    out("T>load dt_ms=%.0f core0=%.1f core1=%.1f audio_stack_free=%d dsp_stack_free=%d tasks=%s", dt / 1000.0, busy0,
+        busy1, audio_free, dsp_free, list);
+}
+#else
+void cmdLoad() { out("T>err no run-time stats"); }
+#endif
+
+#ifdef ESP_PLATFORM
+// Memory access cost as the FX bus sees it: 8 delay-line streams (read half a span back, write, advance) over a
+// buffer, run in a task on core 1 below the audio task. Cycles per access, the best of 96 runs of 64 samples (the
+// audio task's blocks only lengthen some runs). The UI keeps running on core 0 meanwhile, as in normal use.
+struct MemBench {
+    float* buf = nullptr;
+    int32_t len = 0;
+    uint32_t best = 0;
+    SemaphoreHandle_t done = nullptr;
+};
+
+void memBenchTask(void* p)
+{
+    MemBench& b = *static_cast<MemBench*>(p);
+    constexpr int kStreams = 8, kN = 64, kRuns = 96;
+    // spans of len / 8 minus 23 cache lines: the streams fall into different cache sets, as the reverb's lines do
+    // (power-of-two spacing would make every stream fight for the same set)
+    const int32_t span = b.len / kStreams - 23 * 16, d = span / 2;
+    int32_t pos[kStreams];
+    for (int k = 0; k < kStreams; ++k) pos[k] = k * span + d;
+    uint32_t best = 0xFFFFFFFFu;
+    for (int run = 0; run < kRuns; ++run) {
+        const uint32_t c0 = (uint32_t)esp_cpu_get_cycle_count();
+        for (int i = 0; i < kN; ++i) {
+            for (int k = 0; k < kStreams; ++k) {
+                int32_t rp = pos[k] - d;
+                if (rp < 0) rp += b.len;
+                b.buf[pos[k]] = b.buf[rp] * 0.5f;
+                if (++pos[k] >= b.len) pos[k] = 0;
+            }
+        }
+        const uint32_t c = (uint32_t)esp_cpu_get_cycle_count() - c0;
+        if (c < best) best = c;
+        if ((run & 15) == 15) vTaskDelay(1);   // let lower tasks breathe
+    }
+    b.best = best;
+    xSemaphoreGive(b.done);
+    vTaskDelete(nullptr);
+}
+
+// cycles per access x 100 (-1: no memory of that kind)
+long memBenchOne(uint32_t caps, size_t bytes)
+{
+    MemBench b;
+    b.buf = static_cast<float*>(heap_caps_calloc(1, bytes, caps));
+    if (!b.buf) return -1;
+    b.len = (int32_t)(bytes / sizeof(float));
+    b.done = xSemaphoreCreateBinary();
+    long r = -1;
+    if (b.done && xTaskCreatePinnedToCore(memBenchTask, "orbit_bench", 3072, &b, 2, nullptr, 1) == pdPASS &&
+        xSemaphoreTake(b.done, pdMS_TO_TICKS(10000)) == pdTRUE)
+        r = (long)((uint64_t)b.best * 100u / (64u * 8u * 2u));
+    if (b.done) vSemaphoreDelete(b.done);
+    heap_caps_free(b.buf);
+    return r;
+}
+
+void cmdMemBench()
+{
+    const size_t fi = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    const size_t li = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    const size_t ft = heap_caps_get_free_size(MALLOC_CAP_TCM), lt = heap_caps_get_largest_free_block(MALLOC_CAP_TCM);
+    const size_t fr = heap_caps_get_free_size(MALLOC_CAP_RTCRAM);
+    const size_t lr = heap_caps_get_largest_free_block(MALLOC_CAP_RTCRAM);
+    const size_t fp = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    const long psram = memBenchOne(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT, 1024 * 1024);
+    const long internal = li > 24 * 1024 ? memBenchOne(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT, 16 * 1024) : -1;
+    const long rtc = lr >= 16 * 1024 ? memBenchOne(MALLOC_CAP_RTCRAM, 16 * 1024) : -1;
+    const long tcm = lt >= 4 * 1024 ? memBenchOne(MALLOC_CAP_TCM, 4 * 1024) : -1;
+    out("T>membench psram_x100=%ld internal_x100=%ld rtc_x100=%ld tcm_x100=%ld free_internal=%u largest=%u tcm=%u "
+        "tcm_largest=%u rtc=%u rtc_largest=%u psram=%u",
+        psram, internal, rtc, tcm, (unsigned)fi, (unsigned)li, (unsigned)ft, (unsigned)lt, (unsigned)fr, (unsigned)lr,
+        (unsigned)fp);
+}
+
+// The UI paused: the LVGL lock is held for ms, so the UI task neither draws nor touches memory. The engine profile
+// is taken near the end (its 256-block windows then fall inside the pause) together with membench, then the lock
+// goes back. Compare with "prof" / "membench" while the UI runs.
+void cmdQuiet(const char* arg)
+{
+    int v[1] = {1200};
+    ints(arg, v, 1);
+    const int ms = v[0] < 800 ? 800 : (v[0] > 3000 ? 3000 : v[0]);
+    if (!lock()) {
+        out("T>err busy");
+        return;
+    }
+    vTaskDelay(pdMS_TO_TICKS(ms - 250));
+    const long psram = memBenchOne(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT, 1024 * 1024);
+    const size_t li = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    const long internal = li > 24 * 1024 ? memBenchOne(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT, 16 * 1024) : -1;
+    const Telemetry& t = app().engine().telemetry();
+    char buf[400];
+    snprintf(buf, sizeof buf,
+             "T>quiet ms=%d block=%lu voices_x100=%lu pre=%lu pads=%lu bass=%lu synth=%lu preview=%lu master=%lu "
+             "post=%lu job=%lu wait=%lu fx=%lu dly=%lu rev=%lu psram_x100=%ld internal_x100=%ld",
+             ms, (unsigned long)t.prof_block.load(), (unsigned long)t.prof_voices_x100.load(),
+             (unsigned long)t.prof[Telemetry::kProfPre].load(), (unsigned long)t.prof[Telemetry::kProfVoices].load(),
+             (unsigned long)t.prof[Telemetry::kProfBass].load(), (unsigned long)t.prof[Telemetry::kProfSynth].load(),
+             (unsigned long)t.prof[Telemetry::kProfPreview].load(), (unsigned long)t.prof[Telemetry::kProfMaster].load(),
+             (unsigned long)t.prof[Telemetry::kProfPost].load(), (unsigned long)t.prof_job.load(),
+             (unsigned long)t.prof_wait.load(), (unsigned long)t.prof_fx.load(), (unsigned long)t.prof_dly.load(),
+             (unsigned long)t.prof_rev.load(), psram, internal);
+    unlock();
+    out("%s", buf);
+}
+
+void cmdStress(const char* arg)
+{
+    while (*arg == ' ') ++arg;
+    char mode[8] = {};
+    int i = 0;
+    while (*arg && *arg != ' ' && i < 7) mode[i++] = *arg++;
+    int v[1] = {1024};
+    ints(arg, v, 1);
+    const size_t bytes = (size_t)(v[0] < 16 ? 16 : (v[0] > 8192 ? 8192 : v[0])) * 1024u;
+    const uint64_t t0 = nowUs();
+    bool ok = true;
+    if (!strcmp(mode, "raw")) {   // what bigAlloc did up to 0.4.9: calloc = one memset at full speed
+        void* p = heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        ok = p != nullptr;
+        if (p) {
+            memset(p, 0, bytes);
+            heap_caps_free(p);
+        }
+    } else if (!strcmp(mode, "zero")) {
+        void* p = bigAlloc(bytes);
+        ok = p != nullptr;
+        bigFree(p);
+    } else if (!strcmp(mode, "copy")) {
+        void* a = bigAllocRaw(bytes);
+        void* b = bigAllocRaw(bytes);
+        ok = a && b;
+        if (ok) bulkCopy(b, a, bytes);
+        bigFree(a);
+        bigFree(b);
+    } else if (!strcmp(mode, "sample")) {   // a mono sample of `bytes`, written, then GAIN (copy-on-write) + analysis
+        Sample* s = sampleCreate((uint32_t)(bytes / 2u), 1, 48000);
+        ok = s != nullptr;
+        if (s) {
+            bulkZero(s->data, bytes);
+            Sample* g = opGain(s, -3.0f);
+            ok = g != nullptr;
+            sampleFree(g);
+            sampleFree(s);
+        }
+    } else {
+        out("T>err stress raw|zero|copy|sample KB");
+        return;
+    }
+    out("T>stress mode=%s kb=%u ok=%d ms=%lu rate=%lu", mode, (unsigned)(bytes / 1024u), ok ? 1 : 0,
+        (unsigned long)((nowUs() - t0) / 1000u), (unsigned long)bulkRate());
+}
+#else
+void cmdMemBench() { out("T>err no device"); }
+void cmdQuiet(const char*) { out("T>err no device"); }
+void cmdStress(const char*) { out("T>err no device"); }
+#endif
+
+void cmdUiStat()
+{
+    static hal::DisplayStats pd;
+    static TickProf pt;
+    static uint64_t p_us = 0;
+    hal::DisplayStats d;
+    hal::displayStats(d);
+    const TickProf t = tickProf();
+    const uint64_t now = nowUs();
+    const double s = p_us ? (double)(now - p_us) / 1e6 : 1.0;
+    const double ms_per_cyc = 1.0 / 360000.0;   // 360 MHz
+    auto ms = [&](uint64_t a, uint64_t b) { return (double)(a - b) * ms_per_cyc / s; };
+    char buf[600];
+    int k = snprintf(buf, sizeof buf,
+                     "T>uistat dt_ms=%.0f refresh_hz=%.1f render_ms=%.1f wait_ms=%.1f areas_hz=%.1f kpx_hz=%.1f "
+                     "tick_hz=%.1f",
+                     s * 1000.0, (d.refreshes - pd.refreshes) / s, ms(d.refr_cycles, pd.refr_cycles),
+                     ms(d.wait_cycles, pd.wait_cycles), (d.areas - pd.areas) / s, (double)(d.px - pd.px) / 1000.0 / s,
+                     (t.ticks - pt.ticks) / s);
+    static const char* const kNames[TickProf::kParts] = {"app", "keys", "top", "pads", "cat",
+                                                         "macros", "timeline", "view", "dialogs"};
+    for (int i = 0; i < TickProf::kParts && k < (int)sizeof buf - 24; ++i)
+        k += snprintf(buf + k, sizeof buf - (size_t)k, " %s=%.2f", kNames[i], ms(t.cyc[i], pt.cyc[i]));
+    static DrawProf pdp;
+    const DrawProf dp = drawProf();
+    static const char* const kDraw[DrawProf::kParts] = {"draw_pads", "draw_grid", "draw_wave"};
+    for (int i = 0; i < DrawProf::kParts && k < (int)sizeof buf - 40; ++i)
+        k += snprintf(buf + k, sizeof buf - (size_t)k, " %s=%.2f %s_n=%.0f", kDraw[i], ms(dp.cyc[i], pdp.cyc[i]),
+                      kDraw[i], (dp.calls[i] - pdp.calls[i]) / s);
+    k += snprintf(buf + k, sizeof buf - (size_t)k, " cull=%d layout=%d lines_internal=%d", pads::culling() ? 1 : 0,
+                  hal::memLayout(), app().engine().fxLinesInternal() ? 1 : 0);
+    pdp = dp;
+    pd = d;
+    pt = t;
+    p_us = now;
+    out("%s", buf);
+}
+
+void cmdBulkRate(const char* arg)
+{
+    int v[1] = {};
+    if (ints(arg, v, 1) == 1) bulkSetRate(v[0] < 0 ? 0u : (uint32_t)v[0]);
+    out("T>bulkrate bytes_per_ms=%lu", (unsigned long)bulkRate());
 }
 
 #ifdef ESP_PLATFORM
@@ -242,6 +582,56 @@ void handleLine(const char* line)
         cmdState();
     } else if (!strncmp(line, "audio", 5)) {
         cmdAudio();
+    } else if (!strncmp(line, "prof", 4)) {
+        cmdProf();
+    } else if (!strncmp(line, "cores", 5)) {
+        cmdCores(line + 5);
+    } else if (!strncmp(line, "fxalgo", 6)) {
+        cmdFxAlgo(line + 6);
+    } else if (!strncmp(line, "fxcheck", 7)) {
+        cmdFxCheck();
+    } else if (!strncmp(line, "membench", 8)) {
+        cmdMemBench();
+    } else if (!strncmp(line, "quiet", 5)) {
+        cmdQuiet(line + 5);
+    } else if (!strncmp(line, "stress", 6)) {
+        cmdStress(line + 6);
+    } else if (!strncmp(line, "bulkrate", 8)) {
+        cmdBulkRate(line + 8);
+    } else if (!strncmp(line, "uistat", 6)) {
+        cmdUiStat();
+    } else if (!strncmp(line, "memlayout", 9)) {
+        int v[1] = {-1};
+        if (ints(line + 9, v, 1) == 1 && (v[0] == 0 || v[0] == 1)) {
+            out("T>memlayout restart %d", v[0]);
+            sleepMs(100);
+            hal::memLayoutRestart(v[0]);
+        }
+        out("T>memlayout layout=%d lines_internal=%d heap=%lu", hal::memLayout(),
+            app().engine().fxLinesInternal() ? 1 : 0, (unsigned long)hal::freeInternal());
+    } else if (!strncmp(line, "fxoff", 5)) {   // 0.4.9 diagnostics: fxoff 1 = no delay / reverb (memory tests)
+        int v[1] = {0};
+        ints(line + 5, v, 1);
+        app().engine().setFxBypass(v[0] != 0);
+        out("T>fxoff %d", v[0] != 0 ? 1 : 0);
+    } else if (!strncmp(line, "padskip", 7)) {   // 0.4.9 diagnostics: padskip mask (1 img 2 rings 4 tints 8 labels)
+        int v[1] = {0};
+        ints(line + 7, v, 1);
+        if (lock()) {
+            pads::setDebugSkip((uint8_t)v[0]);
+            unlock();
+        }
+        out("T>padskip %d", v[0]);
+    } else if (!strncmp(line, "uicull", 6)) {   // 0.4.9: uicull 0|1 = pads drawn the old way / culled
+        int v[1] = {1};
+        ints(line + 6, v, 1);
+        if (lock()) {
+            pads::setCulling(v[0] != 0);
+            unlock();
+        }
+        out("T>uicull %d", pads::culling() ? 1 : 0);
+    } else if (!strncmp(line, "load", 4)) {
+        cmdLoad();
     } else if (!strncmp(line, "touch", 5)) {
         const int n = ints(line + 5, v, 10) / 2;
         hal::TouchPoint p[5];

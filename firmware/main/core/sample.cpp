@@ -22,11 +22,16 @@ Sample* sampleCreate(uint32_t frames, int channels, uint32_t rate)
     if (!s) return nullptr;
     new (s) Sample();
     const size_t total = (size_t)(frames + 2 * kGuard) * (size_t)channels;
-    int16_t* block = static_cast<int16_t*>(bigAlloc(total * sizeof(int16_t)));
+    // 0.4.9: not zeroed (a multi-MB memset at full speed costs dropouts while the audio plays): every caller writes
+    // all frames; only the guard frames on both sides are cleared here
+    int16_t* block = static_cast<int16_t*>(bigAllocRaw(total * sizeof(int16_t)));
     if (!block) {
         bigFree(s);
         return nullptr;
     }
+    const size_t guard = (size_t)kGuard * (size_t)channels;
+    memset(block, 0, guard * sizeof(int16_t));
+    memset(block + total - guard, 0, guard * sizeof(int16_t));
     s->alloc = block;
     s->data = block + kGuard * channels;
     s->frames = frames;
@@ -65,7 +70,7 @@ Sample* sampleClone(const Sample* src)
     if (!src) return nullptr;
     Sample* s = sampleCreate(src->frames, src->channels, src->rate);
     if (!s) return nullptr;
-    memcpy(s->data, src->data, (size_t)src->frames * src->channels * sizeof(int16_t));
+    bulkCopy(s->data, src->data, (size_t)src->frames * src->channels * sizeof(int16_t));
     memcpy(s->pk_min, src->pk_min, sizeof(s->pk_min));
     memcpy(s->pk_max, src->pk_max, sizeof(s->pk_max));
     s->peak = src->peak;
@@ -118,6 +123,7 @@ void analyze(Sample* s)
     // With n >= kPeakBins the bins partition [0, n): the overview, peak and RMS come from one pass
     // over the data (it used to be read twice, the second time with soft-double math).
     const bool partition = n >= (uint32_t)kPeakBins;
+    BulkPacer pace;   // one pass over the whole sample: paced while the audio plays (platform.h)
     for (int b = 0; b < kPeakBins; ++b) {
         const uint32_t a = (uint32_t)((uint64_t)n * b / kPeakBins);
         uint32_t e = (uint32_t)((uint64_t)n * (b + 1) / kPeakBins);
@@ -129,6 +135,7 @@ void analyze(Sample* s)
         if (lo > hi) lo = hi = 0;
         s->pk_min[b] = (int8_t)(lo / 258);
         s->pk_max[b] = (int8_t)(hi / 258);
+        bulkPace(pace, (size_t)(e - a) * CH * sizeof(int16_t));
     }
     if (!partition) {   // fewer frames than bins (bins overlap): one extra pass over < 1024 frames
         int lo = 0, hi = 0;

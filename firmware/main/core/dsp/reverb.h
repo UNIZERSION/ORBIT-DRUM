@@ -25,24 +25,31 @@ public:
     static constexpr float kExcursion = 16.0f;   // modulation depth at kRefRate
 
     // Floats needed for a given engine rate (tank at maximum size + pre-delay).
-    static int32_t memoryFloats(int rate)
+    static int32_t memoryFloats(int rate) { return lineFloats(rate) + predelayFloats(rate); }
+    // 0.4.9: the 12 lines of the diffusers and the tank (read and written every sample, ~45 streams) and the
+    // pre-delay (one stream in, one out) apart: FxBus keeps the lines in internal RAM, the pre-delay in PSRAM.
+    static int32_t lineFloats(int rate)
     {
         int32_t total = 0;
         for (int i = 0; i < kLines; ++i) total += lineLen(i, (float)rate);
-        total += predelayLen((float)rate);
         return total;
     }
+    static int32_t predelayFloats(int rate) { return predelayLen((float)rate); }
 
-    void init(float* mem, int rate)
+    // One block of memoryFloats(rate): the lines, then the pre-delay.
+    void init(float* mem, int rate) { init(mem, mem + lineFloats(rate), rate); }
+
+    // lines: lineFloats(rate) floats, pre: predelayFloats(rate) floats.
+    void init(float* lines, float* pre, int rate)
     {
         fs_ = (float)rate;
-        float* p = mem;
+        float* p = lines;
         for (int i = 0; i < kLines; ++i) {
             const int32_t n = lineLen(i, fs_);
             line_[i].init(p, n);
             p += n;
         }
-        pre_.init(p, predelayLen(fs_));
+        pre_.init(pre, predelayLen(fs_));
         bw_a_ = onePoleCoef(9000.0f, fs_);
         size_ = -1.0f;
         geo_size_ = last_decay_ = last_damp_ = -1.0f;   // force a full recompute

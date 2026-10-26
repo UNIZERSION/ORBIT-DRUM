@@ -2,7 +2,9 @@
 
 Polska instrukcja i historia wersji. Opis po angielsku: [README.md](../README.md).
 
-Wersja **0.4.8** (24.10.2026). 0.4.8: na górnym pasku logo **ORBIT DAW** (własne liternictwo w szerokim, kanciastym stylu techno, `tools/logogen`) zamiast „TAB5” i podpisu „SAMPLER / SEQUENCER”.
+Wersja **0.4.9** (25.10.2026). 0.4.9: **syntezator SYNTH** w stylu System-1 (4 głosy, 2 oscylatory z COLOR, sync, ring, cross-mod, sub, szum, filtry −24/−12 dB, 2 obwiednie, LFO, tryby POLY/MONO/UNISON, 8 gotowych brzmień); każda scena ma ścieżkę nut syntezatora (akordy do 4 nut, każda z własną długością), która gra razem z perkusją i basem na kanale 7 miksera (SYNTH); w demo scena D dostała akordy. Ekran do edycji nut przyjdzie w następnej wersji. Wbudowane zestawy 909/808 spakowane bezstratnie (firmware 4,8 MB zamiast 6,2 MB), slot aplikacji 7552 KB (maksimum launchera).
+Wydajność (0.4.9, dźwięk bit w bit taki sam jak wcześniej): syntezator liczy się na drugim rdzeniu procesora, równolegle z perkusją; linie pogłosu są w szybkiej pamięci wewnętrznej, a bufory rysowania ekranu w PSRAM (pogłos kosztuje o połowę mniej, ekran rysuje szybciej); echo liczy blokami; pady przerysowują tylko to, co się zmienia. Gęsta scena D obciąża rdzeń dźwięku w ok. 48 % zamiast 72 %. Duże operacje na pamięci (wczytywanie i edycja dużych sampli, rozpakowanie kitów) w trakcie grania ustępują dźwiękowi i nie robią przerw (są wtedy wolniejsze; bez grania pełna szybkość).
+0.4.8: na górnym pasku logo **ORBIT DAW** (własne liternictwo w szerokim, kanciastym stylu techno, `tools/logogen`) zamiast „TAB5” i podpisu „SAMPLER / SEQUENCER”.
 0.4.7: **jedno demo** przy starcie — utwór w stylu brzmienia 303 + 909 z „Da Funk” Daft Punk (111 BPM, g-moll, przesterowana linia acid na prostym groovie 909; nuty i wzory są nasze). Sceny A–D to intro, groove z basem, przerwa bez stopy i pełna wersja; FOLLOW gra je jako piosenkę. NEW PROJECT zaczyna od pustego projektu (120 BPM, domyślne pokrętła).
 0.4.6: obsługa **klawiatury M5Stack Tab5 Keyboard** ze skrótami jak w Ableton Live (rozdział 3a); cały interfejs i komunikaty **po angielsku**; większe okno ustawień i nowa opcja **Interface size** (Ustawienia → Display: Standard / Large / Extra large — większe okna, listy i pola dotyku); lepszy dotyk przycisków górnego paska; w powiększonym panelu BROWSER kategoria (np. Drums) od razu otwiera pliki w dużym widoku, a widok BROWSER ma listę kategorii obok wyszukiwarki; BASS bez pokrętła TUNE, za to linia i KEYS sięgają oktawę niżej i wyżej (C0–C5); przewodnik ? ma karty ze skrótami klawiatury.
 0.4.5: konsola testowa zajmuje pamięć dopiero po pierwszej komendzie z komputera
@@ -53,7 +55,7 @@ w prototypie były tylko symulacją, tu działają naprawdę.
    poleceniem `python -I tools/make_release.py`) i rozpakuj na kartę microSD (folder `ORBIT` w katalogu głównym).
    Karta może być FAT32 albo exFAT.
 2. Włóż kartę do Tab5 i uruchom launcher. W zakładce **SD** wybierz
-   `ORBIT/ORBIT_DRUM_0.4.8.bin` i zainstaluj go do slotu aplikacji, potem **BOOT**.
+   `ORBIT/ORBIT_DRUM_0.4.9.bin` i zainstaluj go do slotu aplikacji, potem **BOOT**.
 3. Powrót do launchera: **Ustawienia → About → BACK TO LAUNCHER** (zapyta o niezapisane zmiany)
    albo przycisk RESET.
 
@@ -63,7 +65,7 @@ Nie używaj `idf.py flash` na Tab5 z launcherem — nadpisałoby to launcher pod
 
 ## 2. Test sprzętu (zalecany przed pierwszym użyciem)
 
-`ORBIT/TEST/ORBIT_SELFTEST_0.4.8.bin` instaluje się tak samo. Pokazuje paski kolorów, punkty dotyku
+`ORBIT/TEST/ORBIT_SELFTEST_0.4.9.bin` instaluje się tak samo. Pokazuje paski kolorów, punkty dotyku
 (do 5 palców) z częstotliwością odczytu, ton 440 Hz i metronom ze statystyką opóźnienia i przerw
 (xrun), stan słuchawek (surowy bajt HP_DET), listę plików z karty, baterię i licznik FPS.
 Procedura i co zanotować: `docs/SPRZET_TAB5.md`, sekcja 9. Najważniejsze do potwierdzenia:

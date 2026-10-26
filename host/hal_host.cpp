@@ -457,6 +457,11 @@ void audioStop()
 }
 
 bool audioRunning() { return g_running; }
+float audioLoad() { return 0.0f; }
+void displayStats(DisplayStats& out) { out = DisplayStats(); }
+int memLayout() { return 1; }
+void memLayoutRestart(int) {}
+void displaySetDrawInPsram(bool) {}
 void audioSetVolume(int percent) { g_volume = percent < 0 ? 0 : (percent > 100 ? 100 : percent); }
 void audioSetOutput(orbit::AudioOut out) { g_out = out; }
 bool headphonesInserted() { return false; }

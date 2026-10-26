@@ -14,6 +14,7 @@
 #include "ui/ui_internal.h"
 #include "ui/widgets.h"
 #include "core/platform.h"
+#include "core/prof.h"
 #include "hal/hal.h"
 
 namespace orbit::ui {
@@ -104,10 +105,20 @@ void showView(int v, bool animate)
     if (changed) kViews[v].onShow();
 }
 
+TickProf s_tprof;
+
 void tickCb(lv_timer_t* t)
 {
     App& a = app();
+    uint32_t c = profCycles();
+    auto lap = [&](int part) {
+        const uint32_t now = profCycles();
+        s_tprof.cyc[part] += now - c;
+        c = now;
+    };
+    ++s_tprof.ticks;
     a.tick();
+    lap(TickProf::kApp);
     // ~0.5 s after the first frames, the remaining views are created one every ~100 ms (each takes 50-250 ms on
     // the P4), so the start shows the UI without waiting for views nobody looks at yet.
     if (s_views_pending && ++s_ticks >= 30 && s_ticks % 6 == 0) s_views_pending = createNextView();
@@ -117,11 +128,17 @@ void tickCb(lv_timer_t* t)
         lv_timer_set_period(t, want);
     }
     keys::poll();   // the Tab5 Keyboard (0.4.6)
+    lap(TickProf::kKeys);
     topbar::refresh();
+    lap(TickProf::kTop);
     pads::refresh();
+    lap(TickProf::kPads);
     catpanel::refresh();
+    lap(TickProf::kCat);
     macros::refresh();
+    lap(TickProf::kMacros);
     timeline::refresh();
+    lap(TickProf::kTimeline);
     if (a.revs().view != s_view_rev) {
         s_view_rev = a.revs().view;
         const int v = (int)a.ui().view;
@@ -131,8 +148,10 @@ void tickCb(lv_timer_t* t)
         if (v != s_shown) showView(v, true);
     }
     if (s_shown >= 0) kViews[s_shown].refresh();
+    lap(TickProf::kView);
     dlg_settings::refresh();
     dlg_sample::refresh();
+    lap(TickProf::kDialogs);
 }
 
 // ---------------------------------------------------------------- panel maximize
@@ -302,6 +321,9 @@ void maxAsync(void* u)
 void maxBtnCb(lv_event_t* e) { lv_async_call(maxAsync, lv_event_get_user_data(e)); }
 
 }  // namespace
+
+const TickProf& tickProf() { return s_tprof; }
+
 
 lv_obj_t* panelMaxButton(lv_obj_t* parent, Panel p, bool full_screen)
 {

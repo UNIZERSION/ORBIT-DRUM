@@ -1,5 +1,7 @@
 #include "project.h"
 
+#include "synthmap.h"
+
 #include <initializer_list>
 #include <math.h>
 #include <string.h>
@@ -20,7 +22,8 @@ const char* const kPadNames[kPads] = {"Kick", "Snare", "Cl Hat", "Op Hat", "Clap
 const uint8_t kPadBus[kPads] = {0, 1, 2, 2, 1, 1, 4, 4, 4, 5, 5, 0, 1, 2, 1, 0};
 const uint8_t kPadChoke[kPads] = {0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0};
 // Bus 8 takes the ACID BASS by default (GP_BASS_BUS); no pad is routed there.
-const char* const kBusNames[kBuses] = {"KICK", "SNARE", "HATS", "PERC", "TOMS", "CYMB", "FX", "BASS"};
+// Bus 7 takes the SYNTH by default (GP_SYN_BUS, 0.4.9; it was the unused "FX" channel).
+const char* const kBusNames[kBuses] = {"KICK", "SNARE", "HATS", "PERC", "TOMS", "CYMB", "SYNTH", "BASS"};
 
 void set(Scene& s, int pad, std::initializer_list<int> steps, int vel = 100)
 {
@@ -142,6 +145,25 @@ void funkDemo(Project& p)
     // the room clap a little right, under the dry one
     p.pad[kClapRoom].p[PP_PAN] = 0.35f;
     p.pad[kClapRoom].p[PP_SEND] = 0.30f;
+
+    // SYNTH (0.4.9): short chord stabs over the full part D (G minor: Gm, F, Bb), a plucked patch with some delay
+    synthApplyPreset(2, p.g);   // PLUCK
+    p.g[GP_SYN_LEVEL] = -9.0f;
+    p.g[GP_SYN_SEND] = 0.28f;
+    struct Stab {
+        int step, len, a, b, c;
+    };
+    const Stab stabs[] = {{2, 1, 67, 70, 74},  {6, 1, 67, 70, 74},  {10, 1, 67, 70, 74}, {13, 2, 65, 69, 72},
+                          {18, 1, 67, 70, 74}, {22, 1, 67, 70, 74}, {26, 2, 70, 74, 77}, {29, 3, 65, 69, 72}};
+    for (const Stab& s : stabs) {
+        SynthStep& st = d.synth.step[s.step];
+        const int notes[3] = {s.a, s.b, s.c};
+        for (int i = 0; i < 3; ++i) {
+            st.n[i].note = (uint8_t)notes[i];
+            st.n[i].vel = 92;
+            st.n[i].len = (uint8_t)s.len;
+        }
+    }
 }
 
 }  // namespace
@@ -216,6 +238,7 @@ static void baseDefaults(Project& p)
         sc.div = Division::D1_16;
         sc.swing = 50;
         sc.bass = BassLine{};
+        sc.synth = SynthLine{};
     }
     for (int i = 0; i < kSongSlots; ++i) {
         p.song.slot[i] = -1;

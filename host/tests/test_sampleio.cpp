@@ -746,8 +746,29 @@ static uint64_t checksum(const Sample* s)
     return h;
 }
 
+// A sample of silence (0.4.9: sampleCreate leaves the frames unwritten)
+static Sample* silentSample(uint32_t frames, int ch, uint32_t rate)
+{
+    Sample* s = sampleCreate(frames, ch, rate);
+    if (s) std::memset(s->data, 0, (size_t)frames * (size_t)ch * sizeof(int16_t));
+    return s;
+}
+
 static void testOps()
 {
+    // 0.4.9: sampleCreate no longer zeroes the whole block (bigAllocRaw; on the PC it is filled with 0xA5): the
+    // guard frames on both sides must still be 0, and every op must write all of its frames (the op checks below
+    // compare whole buffers, so a frame left at 0xA5A5 shows up there)
+    for (int ch = 1; ch <= 2; ++ch) {
+        Sample* g = sampleCreate(1000, ch, 48000);
+        bool zero = g != nullptr;
+        for (int i = 0; g && i < kGuard * ch; ++i) {
+            zero = zero && g->data[-1 - i] == 0;
+            zero = zero && g->data[(size_t)g->frames * ch + i] == 0;
+        }
+        CHECK(zero);
+        sampleFree(g);
+    }
     Sample* sine = makeSine(48000, 2, 48000, 440.0f, 8000.0f);
     const uint64_t sum0 = checksum(sine);
 
@@ -814,13 +835,13 @@ static void testOps()
     }
 
     {   // trim silence: 1000 zeros + 5000-frame tone + 2000 zeros
-        Sample* t = sampleCreate(8000, 1, 48000);
+        Sample* t = silentSample(8000, 1, 48000);
         for (int i = 0; i < 5000; ++i) t->data[1000 + i] = (int16_t)std::lround(16000 * std::sin(2 * kPi * 1000.0 * i / 48000.0));
         Sample* tr = opTrimSilence(t, -50.0f);
         CHECK(tr && tr->frames >= 4990 && tr->frames <= 5000 + 48 + 2);
         CHECK(tr && tr->data[0] == 0 && tr->data[1] == t->data[1001]);
         sampleFree(tr);
-        Sample* z = sampleCreate(1000, 1, 48000);
+        Sample* z = silentSample(1000, 1, 48000);
         tr = opTrimSilence(z, -50.0f);
         CHECK(tr && tr->frames == 1000);   // all silent: unchanged copy
         sampleFree(tr);
@@ -1026,10 +1047,10 @@ static void testSlicing()
         sampleFree(nl);
     }
 
-    Sample* silent = sampleCreate(48000, 1, 48000);
+    Sample* silent = silentSample(48000, 1, 48000);
     CHECK(sliceTransients(silent, 0.0f, 1.0f, 1.0f, kMaxSlices, pos) == 1 && pos[0] == 0.0f);
     sampleFree(silent);
-    Sample* tiny = sampleCreate(100, 1, 48000);
+    Sample* tiny = silentSample(100, 1, 48000);
     CHECK(sliceTransients(tiny, 0.2f, 1.0f, 0.5f, kMaxSlices, pos) == 1 && std::fabs(pos[0] - 0.2f) < 1e-6f);
     CHECK(sliceTransients(tiny, 0.5f, 0.2f, 0.5f, kMaxSlices, pos) == 0);
     sampleFree(tiny);
@@ -1317,6 +1338,19 @@ static void randomProject(Project& p, SampleRef refs[kPads][kLayers])
                 st.flam = (uint8_t)(rnd() % 9);
             }
         }
+        // SYNTH (0.4.9): chords of 1..4 notes on about a fifth of the steps (slots filled from the first one, as
+        // the loader fills them)
+        sc.synth = SynthLine{};
+        for (int i = 0; i < kMaxSteps; ++i) {
+            if (rnd() % 5) continue;
+            const int notes = 1 + (int)(rnd() % kSynthStepNotes);
+            for (int j = 0; j < notes; ++j) {
+                SynthNote& sn = sc.synth.step[i].n[j];
+                sn.note = (uint8_t)(kSynthNoteMin + rnd() % (kSynthNoteMax - kSynthNoteMin + 1));
+                sn.vel = (uint8_t)(1 + rnd() % 127);
+                sn.len = (uint8_t)(1 + rnd() % kMaxSteps);
+            }
+        }
     }
     for (int i = 0; i < kSongSlots; ++i) {
         p.song.slot[i] = (int8_t)((int)(rnd() % 5) - 1);
@@ -1427,6 +1461,25 @@ static void testPersist()
     writeText(mini, "{\"format\":\"orbit-project\",\"version\":1}");
     CHECK(projectLoad(mini.c_str(), c, rb, err, sizeof err) && std::memcmp(&c, &def, sizeof(Project)) == 0);
     CHECK(rb[0][0].path[0] == 0);
+
+    // 0.4.9: a project saved before the SYNTH (globals without syn_* keys, scenes without "synth") gets an empty synth
+    // line in its scenes and the plain synth knobs, not the demo's stabs and PLUCK patch
+    {
+        const std::string old = kDir + "/before_synth.orb";
+        writeText(old, "{\"format\":\"orbit-project\",\"version\":1,\"globals\":{\"master\":-2},"
+                       "\"scenes\":[{\"length\":16},{\"length\":16},{\"length\":16},{\"length\":16}]}");
+        static Project o;
+        CHECK(projectLoad(old.c_str(), o, rb, err, sizeof err));
+        bool empty = true;
+        for (int s = 0; s < kScenes; ++s)
+            for (int st = 0; st < kMaxSteps; ++st)
+                for (const SynthNote& sn : o.scene_data[s].synth.step[st].n) empty = empty && sn.note == 0;
+        CHECK(empty);
+        bool plain = true;
+        for (int k = GP_SYN_OSC1_WAVE; k <= GP_SYN_MUTE; ++k) plain = plain && o.g[k] == globalSpec((GlobalParam)k).def;
+        CHECK(plain);
+        CHECK(o.g[GP_MASTER] == -2.0f);
+    }
 
     // unknown keys ignored, missing keys keep defaults, values range-checked
     const std::string partial = kDir + "/partial.orb";

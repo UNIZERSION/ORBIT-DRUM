@@ -31,6 +31,17 @@ struct SeqNotice {          // things the engine turns into events / telemetry
     static constexpr int kBassMax = 4;
     uint8_t bass_count = 0;
     AcidEvent bass[kBassMax];
+    // SYNTH (0.4.9): notes of the playing scene's synth line that start in this block (sorted by offset), each with
+    // its gate: its length in steps minus 1/16 step (the engine sends the note-off).
+    struct SynthNoteOn {
+        uint8_t note = 60, vel = 100;
+        uint16_t _pad = 0;
+        uint32_t offset = 0;
+        uint32_t gate_frames = 0;
+    };
+    static constexpr int kSynthMax = 12;
+    uint8_t synth_count = 0;
+    SynthNoteOn synth[kSynthMax];
 };
 
 class Sequencer {
@@ -77,7 +88,7 @@ public:
 private:
     // implementation detail fields live in seq.cpp's Impl to keep the header stable
     struct State;
-    alignas(8) uint8_t state_[3072];   // ~2.7 KB: lookahead ring + pending hits (seq.cpp)
+    alignas(8) uint8_t state_[3584];   // ~3.1 KB: lookahead ring + pending hits and notes (seq.cpp)
     State& st();
     const State& st() const;
 };

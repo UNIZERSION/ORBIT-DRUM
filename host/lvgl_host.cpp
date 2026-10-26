@@ -307,3 +307,5 @@ void lvhost_drag(int x0, int y0, int x1, int y1, int ms)
 }
 
 uint32_t lvhost_ms() { return g_ms; }
+
+const uint16_t* lvhost_fb() { return (const uint16_t*)g_fb; }

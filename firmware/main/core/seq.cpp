@@ -85,6 +85,14 @@ struct BassInst {            // a pending ACID BASS note (one per expanded step 
 };
 constexpr int kBassPool = 8;   // >= kMaxLead
 
+struct SynthInst {           // a pending SYNTH note (0.4.9): up to kSynthStepNotes per expanded step
+    uint32_t step;           // absolute step index
+    int16_t q0;              // swing, in 1/1200 step from the grid start
+    uint8_t note, vel, len;  // len in steps
+    uint8_t _pad[3];
+};
+constexpr int kSynthPool = 8 * kSynthStepNotes;   // >= (kMaxLead + 2) steps of chords
+
 struct Audible {             // what the listener hears now (subset of Sched)
     uint8_t scene, step, d;
     int8_t slot;
@@ -206,6 +214,8 @@ struct SeqData {
     Due due[kDue];
     int bass_n;
     BassInst bass[kBassPool];
+    int synth_n;
+    SynthInst synth[kSynthPool];
 };
 
 using State = SeqData;
@@ -232,6 +242,7 @@ ORBIT_HOT void startAt(State& S, int scene, int step, int slot, uint32_t loop, u
     S.last_valid = false;
     S.pool_n = S.click_n = 0;
     S.bass_n = 0;
+    S.synth_n = 0;
     scene = clampi(scene, 0, kScenes - 1);
     const Scene& sc = proj(S).scene_data[scene];
     const int len = sceneLen(sc);
@@ -377,6 +388,22 @@ ORBIT_HOT void expand(State& S, int64_t G, int64_t L)
         }
     }
 
+    // SYNTH (0.4.9): the notes that start on this step (a chord: up to kSynthStepNotes), same grid and swing, not
+    // while the synth line is muted.
+    if (p.g[GP_SYN_MUTE] < 0.5f && !(redo && frameOf(G + int64_t(qs) * L / kQ) < 0)) {
+        const SynthStep& ss = sc.synth.step[s.scene_step];
+        for (int j = 0; j < kSynthStepNotes && S.synth_n < kSynthPool; ++j) {
+            const SynthNote& sn = ss.n[j];
+            if (!sn.note) continue;
+            SynthInst& si = S.synth[S.synth_n++];
+            si.step = k;
+            si.q0 = int16_t(qs);
+            si.note = uint8_t(clampi(sn.note, kSynthNoteMin, kSynthNoteMax));
+            si.vel = uint8_t(clampi(sn.vel, 1, 127));
+            si.len = uint8_t(clampi(sn.len, 1, kMaxSteps));
+        }
+    }
+
     // Metronome: a quarter boundary inside [ticks, ticks + d) (usually at the step start).
     const uint32_t a = s.ticks;
     const uint32_t m = (a + kTicksPerBeat - 1) / kTicksPerBeat * kTicksPerBeat;
@@ -409,6 +436,10 @@ ORBIT_HOT void rollback(State& S, uint32_t k)
     for (int i = 0; i < S.bass_n; ++i)
         if (int32_t(S.bass[i].step - k) < 0) S.bass[w++] = S.bass[i];
     S.bass_n = w;
+    w = 0;
+    for (int i = 0; i < S.synth_n; ++i)
+        if (int32_t(S.synth[i].step - k) < 0) S.synth[w++] = S.synth[i];
+    S.synth_n = w;
 }
 
 ORBIT_HOT int64_t stepLength(State& S)
@@ -562,6 +593,27 @@ ORBIT_HOT int chunk(State& S, int n, SeqTrigger* out, int max, SeqNotice& no, ui
         e.gate_frames = bi.slide ? step_frames + step_frames / 2 : step_frames / 2;
     }
     S.bass_n = w;
+
+    // 3b. SYNTH notes (in step order: offsets come sorted). The gate ends 1/16 step before the note's length is
+    // over, so a note followed by the same note retriggers cleanly.
+    w = 0;
+    for (int i = 0; i < S.synth_n; ++i) {
+        const SynthInst& si = S.synth[i];
+        const int64_t G = int64_t(int32_t(si.step - S.cur)) * L - S.phase;
+        const int64_t f = frameOf(G + int64_t(si.q0) * L / kQ);
+        if (f >= n) {
+            S.synth[w++] = si;
+            continue;
+        }
+        if (no.synth_count >= SeqNotice::kSynthMax) continue;   // more notes in one block than kSynthMax: dropped
+        SeqNotice::SynthNoteOn& e = no.synth[no.synth_count++];
+        e.note = si.note;
+        e.vel = si.vel;
+        e.offset = base + uint32_t(f < 0 ? 0 : f);
+        const uint32_t step_frames = uint32_t(L >> 32);
+        e.gate_frames = uint32_t(si.len) * step_frames - step_frames / 16u;
+    }
+    S.synth_n = w;
 
     // 4. metronome
     w = 0;

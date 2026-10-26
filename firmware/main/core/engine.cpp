@@ -19,7 +19,10 @@
 #include "platform.h"
 #include "seq.h"
 #include "spsc.h"
+#include "synth.h"
+#include "synthmap.h"
 #include "voice.h"
+#include "prof.h"
 
 namespace orbit {
 
@@ -46,6 +49,9 @@ constexpr float kGovLow = 0.60f;      // below: give voices back
 constexpr float kGovDownS = 0.030f;   // min time between two reductions (lets the load settle)
 constexpr float kGovUpS = 0.100f;     // one voice back per 100 ms
 constexpr int kGovMin = Engine::kMinVoiceLimit;
+// The helper core gets this long for a SYNTH job (5 ms at 360 MHz, ~4 blocks of 64 frames at 48 kHz) before the
+// audio core gives up on it for this block.
+constexpr uint32_t kHelperTimeoutCycles = 1800000u;
 
 // A layer's slot index is UI-written at any time: read it exactly once (no re-load by the
 // compiler) and validate that copy before it indexes the slot table.
@@ -118,7 +124,17 @@ public:
     const Project* prj = nullptr;
     bool inited = false;
     float cpu_s = 0.0f;
+    // profile (Telemetry::prof): cycles of the block parts, summed over kProfBlocks blocks
+    static constexpr uint32_t kProfBlocks = 256;
+    uint32_t prof_acc_[Telemetry::kProfParts] = {};
+    uint32_t prof_job_acc_ = 0, prof_wait_acc_ = 0, prof_fx_acc_ = 0, prof_dly_acc_ = 0, prof_rev_acc_ = 0;
+    uint32_t prof_vox_ = 0, prof_n_ = 0;
     std::atomic<uint8_t> user_cap{(uint8_t)kVoices};   // Engine::setVoiceLimit (any task)
+    std::atomic<uint8_t> dual{1};                      // Engine::setDualCore (any task)
+    std::atomic<uint8_t> fx_ref{0};                    // Engine::setFxReference (any task)
+    std::atomic<uint8_t> fx_bypass{0};                 // Engine::setFxBypass (diagnostics)
+    bool fxLinesInternal() const { return fx_.linesInternal(); }
+    bool helper_ok_ = false;
 
 private:
     void processBlock(float* l, float* r, int n);
@@ -139,6 +155,13 @@ private:
     void renderVoices(int from, int to, int n);
     void scheduleBass(const AcidEvent& e);
     void renderBass(int n);
+    void synthLineNote(const SeqNotice::SynthNoteOn& e, int n);
+    void synthLineOff();
+    bool synthBegin(int n);
+    static void synthJobEntry(void* self);
+    void synthJob();
+    bool synthWait();
+    void synthMix(int n);
     void master(float* l, float* r, int n, const SeqNotice& notice);
     void retireCheck();
     void updateTelemetry(const SeqNotice& notice, int n);
@@ -217,6 +240,32 @@ private:
     bool bass_queued_ = false;     // events wait for the next render (the voice may be idle)
     bool bass_live_ = false;       // a held live note (BASS keys) owns the voice: the bass line waits
     float bass_buf_[kRenderBlock];
+
+    // SYNTH (0.4.9): the 4-voice synth, mixed into bus GP_SYN_BUS. Line notes get their note-off from this list
+    // (frames from the current block start); a NoteOn of the same note cancels a pending off (the voice was
+    // retriggered: the new note's own off ends it).
+    struct SynthOffPending {
+        uint8_t note;
+        uint32_t left;
+    };
+    static constexpr int kSynthOffs = 32;
+    Synth synth_;
+    SynthParams synth_p_;
+    SynthOffPending synth_off_[kSynthOffs];
+    int nsynth_off_ = 0;
+    float syn_l_[kRenderBlock];
+    float syn_r_[kRenderBlock];
+    // the render job (synthJob: on the helper core in dual mode). While syn_stalled_ (a job the helper did not
+    // finish in time) synth_ belongs to the helper: nothing here touches it until the job is done.
+    int syn_n_ = 0;
+    float syn_bpm_ = 120.0f;
+    uint8_t syn_voices_ = 0;
+    uint32_t syn_job_cyc_ = 0;
+    bool syn_stalled_ = false;
+    // SYNTH globals synth_p_ was made from (synthFromGlobals runs from flash: only when one changes)
+    static constexpr int kSynGlobals = GP_SYN_MUTE - GP_SYN_OSC1_WAVE + 1;
+    float syn_g_[kSynGlobals] = {};
+    bool syn_gvalid_ = false;
 };
 
 // ============================================================================ setup
@@ -236,6 +285,11 @@ bool EngineImpl::init(int rate_hz, const Project* project)
     seq_.init(rate_hz, project);
     bass_.init(rate_hz);
     bass_queued_ = false;
+    synth_.init(rate_hz);
+    nsynth_off_ = 0;
+    syn_gvalid_ = false;
+    syn_stalled_ = false;
+    helper_ok_ = helperStart();
 #ifdef ESP_PLATFORM
     // Probability rolls differ on every power-on (the PC build stays deterministic for tests).
     seq_.seed((uint32_t)nowUs() ^ 0x9E3779B9u);
@@ -330,8 +384,20 @@ ORBIT_HOT bool EngineImpl::handleCommand(const Command& c)
         e.type = AcidEvtType::Panic;
         bass_live_ = false;
         scheduleBass(e);
+        if (!syn_stalled_) synth_.panic();
+        nsynth_off_ = 0;
         return true;
     }
+    case CmdType::SynthNote:
+        if (syn_stalled_) return true;
+        if (synth_.noteOn((uint8_t)clampi((int)c.value, 0, 127), (uint8_t)clampi(c.vel, 1, 127), 0))
+            tel.synth_notes.fetch_add(1, std::memory_order_relaxed);
+        return true;
+    case CmdType::SynthOff:
+        if (syn_stalled_) return true;
+        if (c.value < 0) synth_.allNotesOff(0);
+        else synth_.noteOff((uint8_t)clampi((int)c.value, 0, 127), 0);
+        return true;
     case CmdType::BassNote: {
         AcidEvent e;
         e.type = AcidEvtType::NoteOn;
@@ -902,6 +968,122 @@ ORBIT_HOT void EngineImpl::renderBass(int n)
     }
 }
 
+// ============================================================================ synth (0.4.9)
+
+void EngineImpl::synthLineNote(const SeqNotice::SynthNoteOn& e, int n)
+{
+    const uint32_t off = e.offset < (uint32_t)n ? e.offset : (uint32_t)n - 1u;
+    int w = 0;   // the voice is retriggered: an older instance's pending off would cut the new note short
+    for (int i = 0; i < nsynth_off_; ++i)
+        if (synth_off_[i].note != e.note) synth_off_[w++] = synth_off_[i];
+    nsynth_off_ = w;
+    if (!synth_.noteOn(e.note, e.vel, (int)off)) return;   // the synth's queue is full: dropped
+    tel.synth_notes.fetch_add(1, std::memory_order_relaxed);
+    if (nsynth_off_ == kSynthOffs) {   // full (more than 32 overlapping line notes): end the oldest now
+        synth_.noteOff(synth_off_[0].note, 0);
+        for (int i = 1; i < nsynth_off_; ++i) synth_off_[i - 1] = synth_off_[i];
+        --nsynth_off_;
+    }
+    synth_off_[nsynth_off_++] = SynthOffPending{e.note, off + (e.gate_frames ? e.gate_frames : 1u)};
+}
+
+void EngineImpl::synthLineOff()
+{
+    for (int i = 0; i < nsynth_off_; ++i) synth_.noteOff(synth_off_[i].note, 0);
+    nsynth_off_ = 0;
+}
+
+// SYNTH per block, in three steps. synthBegin (audio core): the line notes that end in this block and the knobs;
+// false = nothing to render. synthJob: the render into syn_l_ / syn_r_, on the helper core in dual mode (while the
+// pads render on the audio core) or inline. synthMix (audio core): into bus GP_SYN_BUS and its send.
+ORBIT_HOT bool EngineImpl::synthBegin(int n)
+{
+    int w = 0;   // the line notes that end in this block
+    for (int i = 0; i < nsynth_off_; ++i) {
+        SynthOffPending& o = synth_off_[i];
+        if (o.left < (uint32_t)n) {
+            synth_.noteOff(o.note, (int)o.left);
+        } else {
+            o.left -= (uint32_t)n;
+            synth_off_[w++] = o;
+        }
+    }
+    nsynth_off_ = w;
+    if (!synth_.active()) {
+        tel.synth_voices.store(0, std::memory_order_relaxed);
+        return false;
+    }
+    const Project& P = *prj;
+    // knobs -> SynthParams only when a SYNTH global changed (synthFromGlobals runs from flash)
+    const float* g = P.g + GP_SYN_OSC1_WAVE;
+    if (!syn_gvalid_ || !sameBits(syn_g_, g, kSynGlobals)) {
+        memcpy(syn_g_, g, sizeof(syn_g_));
+        syn_gvalid_ = true;
+        synthFromGlobals(P.g, synth_p_);
+    }
+    syn_n_ = n;
+    syn_bpm_ = P.bpm;
+    syn_job_cyc_ = 0;
+    return true;
+}
+
+ORBIT_HOT void EngineImpl::synthJobEntry(void* self) { static_cast<EngineImpl*>(self)->synthJob(); }
+
+ORBIT_HOT void EngineImpl::synthJob()
+{
+    const uint32_t c0 = profCycles();
+    const size_t bytes = sizeof(float) * (size_t)syn_n_;
+    memset(syn_l_, 0, bytes);
+    memset(syn_r_, 0, bytes);
+    synth_.render(syn_l_, syn_r_, syn_n_, synth_p_, syn_bpm_);
+    syn_voices_ = (uint8_t)synth_.activeVoices();
+    syn_job_cyc_ = profCycles() - c0;
+}
+
+// Spins until the helper core has finished the SYNTH job. Not done after kHelperTimeoutCycles: this block goes out
+// without the synth and the synth stays the helper's (syn_stalled_) until the job is done (processBlock).
+ORBIT_HOT bool EngineImpl::synthWait()
+{
+    const uint32_t c0 = profCycles();
+    while (!helperDone()) {
+        if (profCycles() - c0 > kHelperTimeoutCycles) {
+            syn_stalled_ = true;
+            tel.helper_stalls.fetch_add(1, std::memory_order_relaxed);
+            prof_wait_acc_ += profCycles() - c0;
+            return false;
+        }
+    }
+    prof_wait_acc_ += profCycles() - c0;
+    return true;
+}
+
+ORBIT_HOT void EngineImpl::synthMix(int n)
+{
+    const Project& P = *prj;
+    const size_t bytes = sizeof(float) * (size_t)n;
+    tel.synth_voices.store(syn_voices_, std::memory_order_relaxed);
+    const int b = clampi((int)(P.g[GP_SYN_BUS] + 0.5f), 0, kBuses - 1);
+    if (!bus_used_[b]) {
+        memset(bus_l_[b], 0, bytes);
+        memset(bus_r_[b], 0, bytes);
+        memset(snd_l_[b], 0, bytes);
+        memset(snd_r_[b], 0, bytes);
+        bus_used_[b] = true;
+    }
+    const float send = clampf(P.g[GP_SYN_SEND], 0.0f, 1.0f);
+    float* bl = bus_l_[b];
+    float* br = bus_r_[b];
+    float* sl = snd_l_[b];
+    float* sr = snd_r_[b];
+    for (int i = 0; i < n; ++i) {
+        const float xl = syn_l_[i], xr = syn_r_[i];
+        bl[i] += xl;
+        br[i] += xr;
+        sl[i] += xl * send;
+        sr[i] += xr * send;
+    }
+}
+
 // ============================================================================ master
 
 ORBIT_HOT void EngineImpl::master(float* l, float* r, int n, const SeqNotice& notice)
@@ -999,7 +1181,13 @@ ORBIT_HOT void EngineImpl::master(float* l, float* r, int n, const SeqNotice& no
     fxp_.rev_damp = clampf(P.g[GP_REV_DAMP], 0.0f, 1.0f);
     fxp_.rev_predelay_ms = clampf(P.g[GP_REV_PREDELAY], 0.0f, 200.0f);
     fxp_.rev_level = minf(1.0f, clampf(P.g[GP_REV_LEVEL], 0.0f, 1.0f) * (1.0f + 0.5f * throw_));
+    fxp_.reference = fx_ref.load(std::memory_order_relaxed) != 0;
+    fxp_.bypass = fx_bypass.load(std::memory_order_relaxed) != 0;
+    const uint32_t fx0 = profCycles();
     fx_.process(fx_l_, fx_r_, space_, n, fxp_, ret_l_, ret_r_);
+    prof_fx_acc_ += profCycles() - fx0;
+    prof_dly_acc_ += fx_.delayCycles();
+    prof_rev_acc_ += fx_.reverbCycles();
 
     // PUMP: duck everything except the source pad's bus
     const float pd_target = P.pump_on ? clampf(P.g[GP_PUMP_AMT], 0.0f, 1.0f) : 0.0f;
@@ -1136,6 +1324,12 @@ ORBIT_HOT void EngineImpl::process(float* l, float* r, int n)
 
 ORBIT_HOT void EngineImpl::processBlock(float* l, float* r, int n)
 {
+    const uint32_t t0 = profCycles();
+    if (syn_stalled_ && helperDone()) {   // the late SYNTH job is done: the synth is ours again; its notes end
+        syn_stalled_ = false;              // (note-offs may have been dropped meanwhile)
+        synth_.allNotesOff(0);
+        nsynth_off_ = 0;
+    }
     updatePadCache();
     drainCommands();
     governor(n);
@@ -1157,6 +1351,9 @@ ORBIT_HOT void EngineImpl::processBlock(float* l, float* r, int n)
         if (e.offset >= (uint32_t)n) e.offset = (uint32_t)n - 1;
         scheduleBass(e);
     }
+    // SYNTH (0.4.9): a stop releases the line's notes (live notes keep sounding); then this block's line notes
+    if (notice.transport_changed && !seq_.playing() && !syn_stalled_) synthLineOff();
+    for (int i = 0; i < notice.synth_count && !syn_stalled_; ++i) synthLineNote(notice.synth[i], n);
 
     // live hits while recording: quantized into the playing scene by the UI
     if (rec_armed_ && seq_.playing()) {
@@ -1177,6 +1374,18 @@ ORBIT_HOT void EngineImpl::processBlock(float* l, float* r, int n)
 
     for (auto& u : bus_used_) u = false;
     npump_ = 0;
+    const uint32_t t1 = profCycles();
+
+    // SYNTH: on the helper core (dual mode) while the pads, the bass and the preview render here
+    const bool syn = !syn_stalled_ && synthBegin(n);
+    const bool use_helper = helper_ok_ && dual.load(std::memory_order_relaxed) != 0;
+    bool syn_posted = false;
+    if (syn) {
+        if (use_helper) syn_posted = helperPost(&EngineImpl::synthJobEntry, this);
+        if (!syn_posted) synthJob();
+    }
+    tel.dual.store(use_helper ? 1 : 0, std::memory_order_relaxed);
+    const uint32_t t2 = profCycles();
 
     // live commands act at the block start, in arrival order
     for (int i = 0; i < nlive_; ++i) {
@@ -1203,12 +1412,46 @@ ORBIT_HOT void EngineImpl::processBlock(float* l, float* r, int n)
         hit(strig_[k].pad, clampi(strig_[k].vel, 1, 127), (float)strig_[k].pitch, (uint32_t)off);
     }
     renderVoices(pos, n, n);
+    const uint32_t t3 = profCycles();
     renderBass(n);
+    const uint32_t t4 = profCycles();
     renderPreview(n);
+    const uint32_t t5 = profCycles();
+    if (syn && (!syn_posted || synthWait())) {
+        synthMix(n);
+        prof_job_acc_ += syn_job_cyc_;
+    }
+    const uint32_t t6 = profCycles();
     master(l, r, n, notice);
+    const uint32_t t7 = profCycles();
     updateTelemetry(notice, n);
     retireCheck();
     flushOutbox();
+    const uint32_t t8 = profCycles();
+
+    prof_acc_[Telemetry::kProfPre] += t1 - t0;
+    prof_acc_[Telemetry::kProfSynth] += (t2 - t1) + (t6 - t5);
+    prof_acc_[Telemetry::kProfVoices] += t3 - t2;
+    prof_acc_[Telemetry::kProfBass] += t4 - t3;
+    prof_acc_[Telemetry::kProfPreview] += t5 - t4;
+    prof_acc_[Telemetry::kProfMaster] += t7 - t6;
+    prof_acc_[Telemetry::kProfPost] += t8 - t7;
+    prof_vox_ += tel.voices.load(std::memory_order_relaxed);
+    if (++prof_n_ >= kProfBlocks) {
+        for (int i = 0; i < Telemetry::kProfParts; ++i) {
+            tel.prof[i].store(prof_acc_[i] / kProfBlocks, std::memory_order_relaxed);
+            prof_acc_[i] = 0;
+        }
+        tel.prof_job.store(prof_job_acc_ / kProfBlocks, std::memory_order_relaxed);
+        tel.prof_wait.store(prof_wait_acc_ / kProfBlocks, std::memory_order_relaxed);
+        tel.prof_fx.store(prof_fx_acc_ / kProfBlocks, std::memory_order_relaxed);
+        tel.prof_dly.store(prof_dly_acc_ / kProfBlocks, std::memory_order_relaxed);
+        tel.prof_rev.store(prof_rev_acc_ / kProfBlocks, std::memory_order_relaxed);
+        prof_job_acc_ = prof_wait_acc_ = prof_fx_acc_ = prof_dly_acc_ = prof_rev_acc_ = 0;
+        tel.prof_voices_x100.store(prof_vox_ * 100u / kProfBlocks, std::memory_order_relaxed);
+        tel.prof_block.store((uint32_t)n, std::memory_order_relaxed);
+        prof_vox_ = prof_n_ = 0;
+    }
 }
 
 ORBIT_HOT void EngineImpl::processI16(int16_t* lr, int n)
@@ -1336,5 +1579,26 @@ void Engine::setVoiceLimit(int n)
 }
 
 int Engine::voiceLimit() const { return impl_ ? impl_->user_cap.load(std::memory_order_relaxed) : kVoices; }
+
+void Engine::setDualCore(bool on)
+{
+    if (impl_) impl_->dual.store(on ? 1 : 0, std::memory_order_relaxed);
+}
+
+bool Engine::dualCore() const { return impl_ ? impl_->dual.load(std::memory_order_relaxed) != 0 : false; }
+
+void Engine::setFxReference(bool on)
+{
+    if (impl_) impl_->fx_ref.store(on ? 1 : 0, std::memory_order_relaxed);
+}
+
+bool Engine::fxReference() const { return impl_ ? impl_->fx_ref.load(std::memory_order_relaxed) != 0 : false; }
+
+bool Engine::fxLinesInternal() const { return impl_ && impl_->fxLinesInternal(); }
+
+void Engine::setFxBypass(bool on)
+{
+    if (impl_) impl_->fx_bypass.store(on ? 1 : 0, std::memory_order_relaxed);
+}
 
 }  // namespace orbit

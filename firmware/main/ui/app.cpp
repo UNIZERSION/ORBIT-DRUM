@@ -38,6 +38,7 @@
 #include "core/platform.h"
 #include "core/sampleio.h"
 #include "core/spsc.h"
+#include "core/synthmap.h"
 #include "hal/hal.h"
 
 namespace orbit::ui {
@@ -1008,8 +1009,9 @@ Sample* builtinSample(int kit, int i)
     State& s = S();
     if (!s.builtin[kit][i]) {
         const BuiltinSound& snd = k.sounds[i];
-        if (!snd.pcm || !snd.frames) return nullptr;
-        s.builtin[kit][i] = sampleWrapEmbedded(snd.pcm, snd.frames, 1, k.rate, snd.name);
+        const int16_t* pcm = builtinPcm(kit, i);   // 0.4.9: unpacked into PSRAM on first use
+        if (!pcm || !snd.frames) return nullptr;
+        s.builtin[kit][i] = sampleWrapEmbedded(pcm, snd.frames, 1, k.rate, snd.name);
     }
     return s.builtin[kit][i];
 }
@@ -4650,6 +4652,69 @@ void App::bassClear()
 }
 
 uint32_t App::bassNotes() const { return eng().telemetry().bass_notes.load(std::memory_order_relaxed); }
+
+// ---------------------------------------------------------------- SYNTH (0.4.9)
+const SynthStep& App::synthStep(int s) const
+{
+    static const SynthStep kNone{};
+    if (s < 0 || s >= kMaxSteps) return kNone;
+    return P().scene_data[P().scene < kScenes ? P().scene : 0].synth.step[s];
+}
+
+void App::setSynthStep(int s, const SynthStep& st)
+{
+    if (s < 0 || s >= kMaxSteps) return;
+    SynthStep& d = P().scene_data[P().scene < kScenes ? P().scene : 0].synth.step[s];
+    SynthStep n{};
+    for (int i = 0; i < kSynthStepNotes; ++i) {
+        const SynthNote& a = st.n[i];
+        if (!a.note) continue;
+        n.n[i].note = (uint8_t)clampi(a.note, kSynthNoteMin, kSynthNoteMax);
+        n.n[i].vel = (uint8_t)clampi(a.vel, 1, 127);
+        n.n[i].len = (uint8_t)clampi(a.len, 1, kMaxSteps);
+    }
+    if (memcmp(&d, &n, sizeof n) == 0) return;
+    d = n;
+    patternEdited();
+}
+
+void App::synthClear()
+{
+    const int sc = P().scene < kScenes ? P().scene : 0;
+    patternSnapshot(sc);
+    P().scene_data[sc].synth = SynthLine{};
+    patternEdited();
+    sayf("Cleared the synth of scene %c", (char)('A' + sc));
+}
+
+void App::synthKeyOn(int note, int vel, Producer from)
+{
+    Command c;
+    c.type = CmdType::SynthNote;
+    c.value = clampi(note, 0, 127);
+    c.vel = (uint8_t)clampi(vel, 1, 127);
+    noteSound();   // before the post: no flash write may start under this note
+    eng().post(from, c);
+}
+
+void App::synthKeyOff(int note, Producer from)
+{
+    Command c;
+    c.type = CmdType::SynthOff;
+    c.value = note < 0 ? -1 : clampi(note, 0, 127);
+    eng().post(from, c);
+}
+
+void App::synthPreset(int i)
+{
+    if (!synthApplyPreset(i, P().g)) return;
+    State& s = S();
+    ++s.revs.params;
+    markDirty();
+    sayf("SYNTH: %s", synthPresetName(i));
+}
+
+uint32_t App::synthNotes() const { return eng().telemetry().synth_notes.load(std::memory_order_relaxed); }
 
 bool App::canUndoPattern() const { return S().pat_undo_scene >= 0; }
 uint32_t App::patternUndoGen() const { return S().pat_undo_gen; }

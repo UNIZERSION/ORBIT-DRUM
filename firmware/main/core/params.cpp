@@ -58,6 +58,15 @@ const ParamSpec kPad[kPadParamCount] = {
 
 const char* const kWaveNames[] = {"SAW", "SQR"};
 const char* const kBusNumbers[] = {"1", "2", "3", "4", "5", "6", "7", "8"};
+// SYNTH (0.4.9)
+const char* const kSynWaveNames[] = {"SAW", "SQUARE", "TRI"};
+const char* const kSynSubNames[] = {"-1 OCT", "-2 OCT"};
+const char* const kSynFilterNames[] = {"LPF 24", "LPF 12", "HPF 12"};
+const char* const kSynLfoNames[] = {"TRI", "SAW UP", "SAW DN", "SQUARE", "S&H", "RANDOM"};
+// FREE + the 13 tempo divisions of core/synth.cpp (kLfoDivs, synthLfoDivName)
+const char* const kSynLfoSyncNames[] = {"FREE", "4 BARS", "2 BARS", "1 BAR", "1/2",  "1/4.",  "1/4",
+                                        "1/4T", "1/8.",   "1/8",    "1/8T",  "1/16", "1/16T", "1/32"};
+const char* const kSynModeNames[] = {"POLY", "MONO", "UNISON"};
 const char* const kDelayDivs[] = {"4/1", "2/1", "1/1", "1/2", "1/4.", "1/4", "1/8.", "1/8", "1/8T", "1/16", "1/16T", "1/32"};
 
 const ParamSpec kGlobal[kGlobalParamCount] = {
@@ -92,6 +101,57 @@ const ParamSpec kGlobal[kGlobalParamCount] = {
     /* GP_BASS_SEND    */ {"FX SEND", 0.f, 1.f, 0.12f, Curve::Lin, Unit::Percent, 0, nullptr},
     /* GP_BASS_BUS     */ {"BUS", 0.f, 7.f, 7.f, Curve::Int, Unit::Enum, 8, kBusNumbers},
     /* GP_BASS_MUTE    */ {"MUTE", 0.f, 1.f, 0.f, Curve::Int, Unit::Enum, 2, kOnOff},
+    // SYNTH (0.4.9): defaults = SynthParams defaults (core/synth.h)
+    /* GP_SYN_OSC1_WAVE   */ {"WAVE", 0.f, 2.f, 0.f, Curve::Int, Unit::Enum, 3, kSynWaveNames},
+    /* GP_SYN_OSC1_COLOR  */ {"COLOR", 0.f, 1.f, 0.f, Curve::Lin, Unit::Percent, 0, nullptr},
+    /* GP_SYN_OSC1_LEVEL  */ {"LEVEL", 0.f, 1.f, 1.f, Curve::Lin, Unit::Percent, 0, nullptr},
+    /* GP_SYN_OSC2_WAVE   */ {"WAVE", 0.f, 2.f, 0.f, Curve::Int, Unit::Enum, 3, kSynWaveNames},
+    /* GP_SYN_OSC2_COLOR  */ {"COLOR", 0.f, 1.f, 0.f, Curve::Lin, Unit::Percent, 0, nullptr},
+    /* GP_SYN_OSC2_LEVEL  */ {"LEVEL", 0.f, 1.f, 0.f, Curve::Lin, Unit::Percent, 0, nullptr},
+    /* GP_SYN_OSC2_COARSE */ {"COARSE", -24.f, 24.f, 0.f, Curve::Int, Unit::Semis, 49, nullptr},
+    /* GP_SYN_OSC2_FINE   */ {"FINE", -50.f, 50.f, 0.f, Curve::Lin, Unit::Cents, 0, nullptr},
+    /* GP_SYN_OSC2_ENV    */ {"ENV>OSC2", -1.f, 1.f, 0.f, Curve::Lin, Unit::Percent, 0, nullptr},
+    /* GP_SYN_SYNC        */ {"SYNC", 0.f, 1.f, 0.f, Curve::Int, Unit::Enum, 2, kOnOff},
+    /* GP_SYN_RING        */ {"RING", 0.f, 1.f, 0.f, Curve::Int, Unit::Enum, 2, kOnOff},
+    /* GP_SYN_XMOD        */ {"X-MOD", 0.f, 1.f, 0.f, Curve::Lin, Unit::Percent, 0, nullptr},
+    /* GP_SYN_SUB_OCT     */ {"SUB OCT", 0.f, 1.f, 0.f, Curve::Int, Unit::Enum, 2, kSynSubNames},
+    /* GP_SYN_SUB_LEVEL   */ {"SUB", 0.f, 1.f, 0.f, Curve::Lin, Unit::Percent, 0, nullptr},
+    /* GP_SYN_NOISE       */ {"NOISE", 0.f, 1.f, 0.f, Curve::Lin, Unit::Percent, 0, nullptr},
+    /* GP_SYN_TUNE        */ {"TUNE", -24.f, 24.f, 0.f, Curve::Lin, Unit::Semis, 0, nullptr},
+    /* GP_SYN_FILTER      */ {"FILTER", 0.f, 2.f, 0.f, Curve::Int, Unit::Enum, 3, kSynFilterNames},
+    /* GP_SYN_CUTOFF      */ {"CUTOFF", 20.f, 20480.f, 1280.f, Curve::Exp, Unit::Hz, 0, nullptr},
+    /* GP_SYN_RESO        */ {"RESO", 0.f, 1.f, 0.15f, Curve::Lin, Unit::Percent, 0, nullptr},
+    /* GP_SYN_KEY_FOLLOW  */ {"KEY FLW", 0.f, 1.f, 0.5f, Curve::Lin, Unit::Percent, 0, nullptr},
+    /* GP_SYN_ENV_AMT     */ {"ENV AMT", -1.f, 1.f, 0.3f, Curve::Lin, Unit::Percent, 0, nullptr},
+    /* GP_SYN_VEL_CUTOFF  */ {"VEL>CUT", 0.f, 1.f, 0.f, Curve::Lin, Unit::Percent, 0, nullptr},
+    /* GP_SYN_F_ATTACK    */ {"ATTACK", 0.5f, 20000.f, 3.f, Curve::Exp, Unit::Ms, 0, nullptr},
+    /* GP_SYN_F_DECAY     */ {"DECAY", 1.f, 20000.f, 400.f, Curve::Exp, Unit::Ms, 0, nullptr},
+    /* GP_SYN_F_SUSTAIN   */ {"SUSTAIN", 0.f, 1.f, 0.3f, Curve::Lin, Unit::Percent, 0, nullptr},
+    /* GP_SYN_F_RELEASE   */ {"RELEASE", 1.f, 20000.f, 300.f, Curve::Exp, Unit::Ms, 0, nullptr},
+    /* GP_SYN_A_ATTACK    */ {"ATTACK", 0.5f, 20000.f, 3.f, Curve::Exp, Unit::Ms, 0, nullptr},
+    /* GP_SYN_A_DECAY     */ {"DECAY", 1.f, 20000.f, 500.f, Curve::Exp, Unit::Ms, 0, nullptr},
+    /* GP_SYN_A_SUSTAIN   */ {"SUSTAIN", 0.f, 1.f, 0.8f, Curve::Lin, Unit::Percent, 0, nullptr},
+    /* GP_SYN_A_RELEASE   */ {"RELEASE", 1.f, 20000.f, 250.f, Curve::Exp, Unit::Ms, 0, nullptr},
+    /* GP_SYN_VEL_AMP     */ {"VEL>AMP", 0.f, 1.f, 0.5f, Curve::Lin, Unit::Percent, 0, nullptr},
+    /* GP_SYN_LFO_WAVE    */ {"LFO", 0.f, 5.f, 0.f, Curve::Int, Unit::Enum, 6, kSynLfoNames},
+    /* GP_SYN_LFO_RATE    */ {"RATE", 0.05f, 30.f, 5.f, Curve::Exp, Unit::Hz, 0, nullptr},
+    /* GP_SYN_LFO_SYNC    */ {"SYNC", 0.f, 13.f, 0.f, Curve::Int, Unit::Enum, 14, kSynLfoSyncNames},
+    /* GP_SYN_LFO_FADE    */ {"FADE", 0.f, 20000.f, 0.f, Curve::Pow3, Unit::Ms, 0, nullptr},
+    /* GP_SYN_LFO_KEY     */ {"KEY TRIG", 0.f, 1.f, 0.f, Curve::Int, Unit::Enum, 2, kOnOff},
+    /* GP_SYN_LFO_PITCH   */ {"PITCH", 0.f, 1.f, 0.f, Curve::Lin, Unit::Percent, 0, nullptr},
+    /* GP_SYN_LFO_CUTOFF  */ {"FILTER", 0.f, 1.f, 0.f, Curve::Lin, Unit::Percent, 0, nullptr},
+    /* GP_SYN_LFO_AMP     */ {"AMP", 0.f, 1.f, 0.f, Curve::Lin, Unit::Percent, 0, nullptr},
+    /* GP_SYN_LFO_PW      */ {"PW", 0.f, 1.f, 0.f, Curve::Lin, Unit::Percent, 0, nullptr},
+    /* GP_SYN_MODE        */ {"MODE", 0.f, 2.f, 0.f, Curve::Int, Unit::Enum, 3, kSynModeNames},
+    /* GP_SYN_LEGATO      */ {"LEGATO", 0.f, 1.f, 0.f, Curve::Int, Unit::Enum, 2, kOnOff},
+    /* GP_SYN_GLIDE       */ {"GLIDE", 0.f, 5000.f, 0.f, Curve::Pow3, Unit::Ms, 0, nullptr},
+    /* GP_SYN_DETUNE      */ {"DETUNE", 0.f, 1.f, 0.3f, Curve::Lin, Unit::Percent, 0, nullptr},
+    /* GP_SYN_SPREAD      */ {"SPREAD", 0.f, 1.f, 0.5f, Curve::Lin, Unit::Percent, 0, nullptr},
+    /* GP_SYN_DRIVE       */ {"DRIVE", 0.f, 1.f, 0.f, Curve::Lin, Unit::Percent, 0, nullptr},
+    /* GP_SYN_LEVEL       */ {"LEVEL", -60.f, 6.f, -3.f, Curve::Lin, Unit::Db, 0, nullptr},
+    /* GP_SYN_SEND        */ {"FX SEND", 0.f, 1.f, 0.15f, Curve::Lin, Unit::Percent, 0, nullptr},
+    /* GP_SYN_BUS         */ {"BUS", 0.f, 7.f, 6.f, Curve::Int, Unit::Enum, 8, kBusNumbers},
+    /* GP_SYN_MUTE        */ {"MUTE", 0.f, 1.f, 0.f, Curve::Int, Unit::Enum, 2, kOnOff},
 };
 
 float clamp01(float v) { return v < 0.f ? 0.f : (v > 1.f ? 1.f : v); }
