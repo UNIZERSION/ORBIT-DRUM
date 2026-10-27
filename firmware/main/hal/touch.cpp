@@ -292,7 +292,7 @@ bool touchStart(void* lv_display)
         if (t) lv_timer_set_period(t, 10);
         lvUnlock();
     }
-    if (xTaskCreatePinnedToCore(touchTask, "orbit_touch", 4096, nullptr, 6, nullptr, 0) != pdPASS) {
+    if (xTaskCreatePinnedToCore(touchTask, "orbit_touch", 4096, nullptr, detail::kI2cPrio, nullptr, 0) != pdPASS) {
         ESP_LOGE(TAG, "touch task");
         return false;
     }

@@ -144,6 +144,7 @@ void applyOutputLocked()
     if (want == s_spk_state) return;
     esp_io_expander_handle_t io = detail::ioe1();
     if (!io) return;
+    detail::I2cCeiling ceiling;
     esp_err_t err = esp_io_expander_set_dir(io, kSpkEnPin, IO_EXPANDER_OUTPUT);
     if (err == ESP_OK) err = esp_io_expander_set_level(io, kSpkEnPin, (uint8_t)want);
     if (err == ESP_OK) err = esp_io_expander_set_output_mode(io, kSpkEnPin, IO_EXPANDER_OUTPUT_MODE_PUSH_PULL);
@@ -164,6 +165,7 @@ void logBusProbe(const char* when)
 {
     i2c_master_bus_handle_t bus = bsp_i2c_get_handle();
     if (!bus) return;
+    detail::I2cCeiling ceiling;
     const esp_err_t a = i2c_master_probe(bus, 0x43, 20), b = i2c_master_probe(bus, 0x44, 20);
     const esp_err_t t = i2c_master_probe(bus, 0x55, 20), p = i2c_master_probe(bus, 0x41, 20);
     ESP_LOGW(TAG, "I2C %s: 0x43 %s, 0x44 %s, 0x55 touch %s, 0x41 INA226 %s", when, probeText(a), probeText(b),
@@ -193,7 +195,11 @@ void headphonesReadFailed(esp_err_t err, int64_t now)
     if (s_hp_probes <= kHpMaxClears) {
         // 9 clocks + STOP for a chip stuck mid-transfer; not under the bus lock (a touch read at that moment
         // fails once)
-        const esp_err_t r = i2c_master_bus_reset(bsp_i2c_get_handle());
+        esp_err_t r;
+        {
+            detail::I2cCeiling ceiling;
+            r = i2c_master_bus_reset(bsp_i2c_get_handle());
+        }
         ESP_LOGW(TAG, "HP_DET: %d failed reads, I2C bus clear %d/%d: %s", s_hp_fail, s_hp_probes, kHpMaxClears,
                  esp_err_to_name(r));
     }
@@ -207,6 +213,7 @@ void headphonesReadBack(esp_io_expander_handle_t io)
     s_hp_fail = 0;
     esp_log_level_set("pi4ioe5v6408", s_ioe_log[0]);
     esp_log_level_set("io_expander", s_ioe_log[1]);
+    detail::I2cCeiling ceiling;
     esp_io_expander_set_dir(io, kHpDetPin, IO_EXPANDER_INPUT);
     esp_io_expander_set_pullupdown(io, kHpDetPin, IO_EXPANDER_PULL_NONE);
     __atomic_store_n(&s_hp_reapply, true, __ATOMIC_RELAXED);
@@ -221,7 +228,11 @@ void readHeadphones()
     const int64_t now = esp_timer_get_time();
     if (s_hp_fail && now < s_hp_next_us) return;
     uint32_t levels = 0;
-    const esp_err_t err = esp_io_expander_get_level(io, 0xFF, &levels);
+    esp_err_t err;
+    {
+        detail::I2cCeiling ceiling;   // orbit_aux (2): LVGL (4) must not stop it while it holds the bus
+        err = esp_io_expander_get_level(io, 0xFF, &levels);
+    }
     if (err != ESP_OK) {
         headphonesReadFailed(err, now);
         return;
@@ -260,6 +271,7 @@ void auxTask(void*)
 
 void codecTeardown()
 {
+    detail::I2cCeiling ceiling;
     if (s_dev) {
         if (s_dev_open) {
             esp_codec_dev_set_out_mute(s_dev, true);
@@ -458,6 +470,7 @@ bool codecStart(uint32_t rate)
     dev_cfg.data_if = s_data_if;
     s_dev = esp_codec_dev_new(&dev_cfg);
     if (!s_dev) return false;
+    detail::I2cCeiling ceiling;   // the codec's register writes: one transfer each, other devices in between
     esp_codec_dev_sample_info_t fs = {};
     fs.bits_per_sample = 16;
     fs.channel = 2;
@@ -577,6 +590,7 @@ void audioStop()
         s_running = false;
         // amplifier off before the codec powers down: no pop from the speaker
         esp_io_expander_handle_t io = s_spk_state == 1 ? detail::ioe1() : nullptr;
+        detail::I2cCeiling ceiling;
         if (io && esp_io_expander_set_level(io, kSpkEnPin, 0) == ESP_OK) s_spk_state = 0;
     }
     codecTeardown();
@@ -593,7 +607,10 @@ void audioSetVolume(int percent)
     percent = percent < 0 ? 0 : percent > 100 ? 100 : percent;
     xSemaphoreTake(s_ctl, portMAX_DELAY);
     s_volume = percent;
-    if (s_dev) esp_codec_dev_set_out_vol(s_dev, percent);
+    if (s_dev) {
+        detail::I2cCeiling ceiling;   // the volume knob: the LVGL task (4)
+        esp_codec_dev_set_out_vol(s_dev, percent);
+    }
     xSemaphoreGive(s_ctl);
 }
 
